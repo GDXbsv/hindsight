@@ -277,3 +277,25 @@ async def test_an_unreadable_answer_is_silence():
     result = await _reflect(provider, pick=pick)
 
     assert result.abstained and result.text == ""
+
+
+@pytest.mark.asyncio
+async def test_a_settled_pick_tells_the_answer_to_write_and_keeps_it():
+    """Below none 0.3 the decision model has settled it: the LLM writes, and its text stands."""
+    provider = _ScriptedProvider([])
+
+    def answer(**k):
+        prompt = k["messages"][-1]["content"]
+        if "## Memories" not in prompt:
+            return LLMCallResult(content=prompt, usage=TokenUsage(input_tokens=1, output_tokens=1))
+        provider.answer_prompts.append(prompt)
+        reply = {"applies": False, "answer": "Memory suffixes are binary: K=1024."}
+        return LLMCallResult(content=json.dumps(reply), usage=TokenUsage(input_tokens=1, output_tokens=1))
+
+    provider.call = AsyncMock(side_effect=answer)  # type: ignore[method-assign]
+    pick = AsyncMock(return_value=EvidencePick(none=0.02, candidates=[0.97, 0.01]))
+
+    result = await _reflect(provider, pick=pick)
+
+    assert "already judged to answer the question" in provider.answer_prompts[0]
+    assert not result.abstained and result.text == "Memory suffixes are binary: K=1024."

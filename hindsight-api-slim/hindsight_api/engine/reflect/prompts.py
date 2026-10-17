@@ -1190,13 +1190,22 @@ def build_abstain_answer_system_prompt(
 
 
 def build_abstain_answer_prompt(
-    query: str, context: str | None, memories: list[str], llm_output_language: str | None
+    query: str, context: str | None, memories: list[str], llm_output_language: str | None, *, settled: bool = False
 ) -> str:
-    """The question, what it is about, and the memories the decision model picked for it."""
+    """The question, what it is about, and the memories the decision model picked for it.
+
+    ``settled``: the decision model was sure these memories answer, so the answer is to be written.
+    """
     context_section = f"\n\n## Context\n{context.strip()}" if context and context.strip() else ""
+    settled_note = (
+        "\n\nThese memories were already judged to answer the question: `applies` is true; write the answer."
+        if settled
+        else ""
+    )
     return (
         f"## Question\n{query}{context_section}\n\n## Memories\n"
         + "\n".join(memories)
+        + settled_note
         + output_language_directive(llm_output_language)
     )
 

@@ -169,6 +169,11 @@ _ABSTAIN_AT = 0.9
 # What an ``abstain`` reflect's answer reads: the candidates picked at least this likely (and the
 # likeliest one always), instead of the whole pruned round.
 _PICK_FLOOR = 0.1
+# Below this "none" the decision model has settled that the picked memories answer, and the LLM
+# only writes the answer; between it and _ABSTAIN_AT the LLM decides. Left to decide everywhere, it
+# turned down a heads-up the decision model was sure of (none 0.02) on 1 of 3 live sde-bench dedupe
+# runs, which then needed a correction; the client-side watcher's writer had no veto below 0.3.
+_ANSWER_AT = 0.3
 # How much of the picked memories' source an abstain answer reads: the facts expanded to their
 # chunks, deduplicated, cut at the same 8000 characters the client-side watcher's writer read.
 _ANSWER_SOURCE_FACTS = 12
@@ -1106,7 +1111,7 @@ async def _run_reflect_agent_inner(
             directives_applied=directives_applied,
         )
 
-    async def _answer_picked(iterations_completed: int, picked: list[Any]) -> ReflectAgentResult:
+    async def _answer_picked(iterations_completed: int, picked: list[Any], *, settled: bool) -> ReflectAgentResult:
         """An ``abstain`` reflect's answer, from only what the decision model picked: one short call,
         not the agent's closing turn, whose prompt and tool schemas tripled the input (6k tokens)."""
         memories: list[str] = []
@@ -1154,7 +1159,7 @@ async def _run_reflect_agent_inner(
         # "Nothing conflicts." now and then, and the watcher delivered it as a note.
         reply = _abstain_answer_from(
             await _tracked_llm_call(
-                build_abstain_answer_prompt(query, context, memories, llm_output_language),
+                build_abstain_answer_prompt(query, context, memories, llm_output_language, settled=settled),
                 "abstain_answer",
                 build_abstain_answer_system_prompt(bank_profile.get("mission"), llm_output_language, directives),
                 synthesis_max_completion_tokens,
@@ -1162,7 +1167,7 @@ async def _run_reflect_agent_inner(
             )
         )
         answer = reply.answer.strip()
-        if not reply.applies or answer.strip("\"'`.*").upper() in ("", _NOTHING_TO_SEARCH):
+        if (not reply.applies and not settled) or answer.strip("\"'`.*").upper() in ("", _NOTHING_TO_SEARCH):
             return _abstained(iterations_completed)
         logger.info(f"[REFLECT {reflect_id}] Answered from {len(memories)} picked memory lines.")
         return ReflectAgentResult(
@@ -1497,7 +1502,7 @@ async def _run_reflect_agent_inner(
             round_landed = False
             if picked_round.nothing_answers:
                 return _abstained(iteration)
-            return await _answer_picked(iteration, picked_round.tool_results)
+            return await _answer_picked(iteration, picked_round.tool_results, settled=picked_round.none < _ANSWER_AT)
         if round_landed and evidence_is_sufficient_fn is not None and not decision_model_failed:
             round_landed = False
             evidence = "\n\n".join(m["content"] for m in messages if m.get("role") == "tool")
@@ -2354,6 +2359,8 @@ class _PickedRound:
     #: The round with only the picked candidates; nothing when the decision model picked none.
     tool_results: list[Any]
     nothing_answers: bool
+    #: How likely the decision model found it that none of the candidates answers.
+    none: float = 1.0
 
 
 def _round_robin(pool: _EvidencePool) -> list[int]:
@@ -2406,7 +2413,7 @@ async def _pick_round(
         f"[REFLECT {reflect_id}] Decision-orchestrated: picked {len(kept)}/{len(pool.slots)} evidence items "
         f"(none={pick.none:.2f})."
     )
-    return _PickedRound(tool_results=_keep_slots(tool_results, kept), nothing_answers=False)
+    return _PickedRound(tool_results=_keep_slots(tool_results, kept), nothing_answers=False, none=pick.none)
 
 
 def _unique_tool_call_ids(tool_calls: list["LLMToolCall"], already_emitted: set[str]) -> list[str]:
