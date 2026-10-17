@@ -107,7 +107,7 @@ describe("watchOnce", () => {
     const slow = client({
       reflectMaybe: vi.fn(
         () =>
-          new Promise(
+          new Promise<{ text: string; memoryIds: string[]; supported: boolean }>(
             (resolve) => (release = () => resolve({ text: "", memoryIds: [], supported: true }))
           )
       ),

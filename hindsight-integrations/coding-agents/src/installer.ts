@@ -285,7 +285,7 @@ function mergeHarnessHooks(
     installedEvents.add(hook.event);
     const entry =
       spec.configStyle === "nested"
-        ? cmdHook(dist, hook.entry, hook.timeout!, hook.async)
+        ? cmdHook(dist, hook.entry, hook.timeout!)
         : spec.configStyle === "process"
           ? processHook(dist, hook.entry, hook.timeout!)
           : {

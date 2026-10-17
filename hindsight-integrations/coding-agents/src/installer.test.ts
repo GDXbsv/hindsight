@@ -143,18 +143,18 @@ describe("claude-code installer", () => {
     expect(inner("Stop").timeout).toBe(60);
     for (const ev of ["SessionStart", "UserPromptSubmit", "Stop"]) {
       expect(inner(ev).type).toBe("command");
-      expect(inner(ev).async).toBeUndefined();
     }
   });
 
-  it("registers the memory watcher as an async PostToolUse hook on every tool", () => {
-    // async: Claude Code must never wait on the watcher. No matcher: a heads-up rides the first
-    // read, before the agent has edited anything.
+  it("registers the memory watcher as a short PostToolUse hook on every tool", () => {
+    // Not Claude Code's `async`: its context never arrives mid-task. The hook hands over a ready note
+    // and detaches the review. No matcher: a heads-up rides the first read, before any edit.
     const ctx = makeCtx();
     expect(run(["install", "claude-code"], ctx)).toBe(0);
     const [group] = readJson(settingsPath(ctx)).hooks.PostToolUse;
     expect(group.matcher).toBeUndefined();
-    expect(group.hooks[0]).toMatchObject({ type: "command", async: true, timeout: 120 });
+    expect(group.hooks[0]).toMatchObject({ type: "command", timeout: 10 });
+    expect(group.hooks[0].async).toBeUndefined();
     expect(group.hooks[0].command).toContain(join(ctx.dist, "claude-watch-hook.js"));
   });
 
