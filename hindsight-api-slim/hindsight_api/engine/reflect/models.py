@@ -139,6 +139,9 @@ class ReflectAgentResult(BaseModel):
     """Result from the reflect agent."""
 
     text: str = Field(description="Final answer text")
+    abstained: bool = Field(
+        default=False, description="The caller allowed no answer, and what was retrieved did not answer it"
+    )
     document: StructuredDocument | None = Field(
         default=None,
         description=(

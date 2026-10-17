@@ -6158,6 +6158,18 @@ export type ReflectRequest = {
    * Exclude specific mental models by ID from the reflect loop.
    */
   exclude_mental_model_ids?: Array<string> | null;
+  /**
+   * Abstain
+   *
+   * Allow an empty answer. When memory holds nothing that answers the query, the response has an empty `text` and `abstained: true`, instead of reflect searching on or failing. With a decision model the check costs no LLM call: reflect stops after the first search when the decision model judges it not enough. For callers that act on any text they get back, such as an agent's memory watcher that should speak only when memory has something to say.
+   */
+  abstain?: boolean;
+  /**
+   * Search Queries
+   *
+   * What to search for in the first retrieval round, each query through every retrieval layer, instead of an LLM rewriting the query (and context) into one search. Applies when reflect runs with a decision model; otherwise the agent writes its own searches.
+   */
+  search_queries?: Array<string> | null;
 };
 
 /**
@@ -6172,6 +6184,12 @@ export type ReflectResponse = {
    * The reflect response as well-formatted markdown (headers, lists, bold/italic, code blocks, etc.)
    */
   text: string;
+  /**
+   * Abstained
+   *
+   * True when the request set `abstain` and memory held nothing that answers it: `text` is empty.
+   */
+  abstained?: boolean;
   /**
    * Evidence used to generate the response. Only present when include.facts is set.
    */

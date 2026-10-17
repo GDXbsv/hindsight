@@ -1165,6 +1165,42 @@ def build_final_system_prompt(
 FINAL_SYSTEM_PROMPT = build_final_system_prompt()
 
 
+# The answer of an ``abstain`` reflect, written from what the decision model picked. Not the final
+# synthesis prompt: that one asks the model to "be helpful" with related information, and an
+# abstain caller acts on any text it gets back.
+_ABSTAIN_ANSWER_RULES = """Answer the question from the memories given, and from nothing else.
+
+- Use only what the memories state. Never invent a value, name or rule.
+- If the memories do not state what the question asks for (they only share its topic, or the true answer is no or nothing), reply with exactly NONE and nothing else.
+- Otherwise answer directly, in the form the question asks for, copying exact values and literals verbatim.
+- No preamble, no reasoning, no follow-up questions: the reader acts on any text you write."""
+
+
+def build_abstain_answer_system_prompt(
+    mission: str | None, llm_output_language: str | None, directives: list[dict[str, Any]] | None
+) -> str:
+    """System prompt for an ``abstain`` reflect's answer: the bank's mission and directives, then the rules."""
+    parts = [build_directives_section(directives) if directives else ""]
+    parts.append(escape_for_prompt(mission.strip()) if mission else "")
+    parts.append(_ABSTAIN_ANSWER_RULES)
+    parts.append(default_language_section(_FINAL_LANGUAGE_RULE, llm_output_language))
+    parts.append(build_directives_reminder(directives) if directives else "")
+    parts.append(_current_datetime_section())
+    return "\n\n".join(p.strip() for p in parts if p.strip())
+
+
+def build_abstain_answer_prompt(
+    query: str, context: str | None, memories: list[str], llm_output_language: str | None
+) -> str:
+    """The question, what it is about, and the memories the decision model picked for it."""
+    context_section = f"\n\n## Context\n{context.strip()}" if context and context.strip() else ""
+    return (
+        f"## Question\n{query}{context_section}\n\n## Memories\n"
+        + "\n".join(memories)
+        + output_language_directive(llm_output_language)
+    )
+
+
 STRUCTURED_DELTA_SYSTEM_PROMPT = """You are integrating *new information* into an existing structured document.
 
 You will be given:

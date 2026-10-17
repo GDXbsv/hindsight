@@ -15578,12 +15578,12 @@ class MemoryEngine(MemoryEngineInterface):
             )
         return self._reflect_decision_model_client
 
-    async def _prune_reflect_evidence(self, query: str, texts: list[str]) -> list[bool]:
-        """Keep flags for the first retrieval of a decision-orchestrated reflect."""
+    async def _prune_reflect_evidence(self, query: str, texts: list[str]) -> list[float]:
+        """Rank scores for the first retrieval of a decision-orchestrated reflect: higher ranks
+        first, and 0.0 for a candidate the decision model cut."""
         model = self._reflect_decision_model()
         assert model is not None  # only wired when a decision model is configured
-        scores = await model.predict([(query, text) for text in texts])
-        return [score > 0.0 for score in scores]
+        return await model.predict([(query, text) for text in texts])
 
     def _llm_for_reflect_operation(self, operation_label: str) -> "LLMConfig | MultiLLMProvider":
         """Pick the LLM for a reflect-pipeline run: interactive, or background refresh.
@@ -15622,6 +15622,8 @@ class MemoryEngine(MemoryEngineInterface):
         created_after: datetime | None = None,
         created_before: datetime | None = None,
         answer_as_document: bool = False,
+        abstain: bool = False,
+        search_queries: list[str] | None = None,
         _skip_span: bool = False,
         _operation_label: str = "reflect",
     ) -> ReflectResult:
@@ -16024,6 +16026,9 @@ class MemoryEngine(MemoryEngineInterface):
                         tool_token_limits=tool_token_limits,
                         evidence_is_sufficient_fn=decision_model.evidence_is_sufficient if decision_model else None,
                         prune_evidence_fn=self._prune_reflect_evidence if decision_model else None,
+                        abstain=abstain,
+                        search_queries=search_queries,
+                        pick_evidence_fn=decision_model.pick_answering if decision_model and abstain else None,
                         reflect_id=reflect_id,
                     ),
                     timeout=wall_timeout,
@@ -16091,7 +16096,9 @@ class MemoryEngine(MemoryEngineInterface):
                 "directives": [],
             }
             seen_memory_ids: set[str] = set()
-            for tc in agent_result.tool_trace:
+            # An abstained answer used nothing: what was retrieved did not answer the request.
+            answered_from = [] if agent_result.abstained else agent_result.tool_trace
+            for tc in answered_from:
                 if tc.tool in ("recall", "expand"):
                     for memory in returned_memories(tc.tool, tc.output):
                         # Only include memories that the agent declared as used (or all if none specified)
@@ -16138,7 +16145,7 @@ class MemoryEngine(MemoryEngineInterface):
                 for read_model in trace_call.output.get("mental_models", [])
                 if read_model.get("id")
             }
-            for tc in agent_result.tool_trace:
+            for tc in answered_from:
                 if tc.tool == "get_mental_model":
                     # Single model lookup (with full details)
                     if tc.output.get("found") and "model" in tc.output:
@@ -16219,6 +16226,7 @@ class MemoryEngine(MemoryEngineInterface):
             # Return response (compatible with existing API)
             result = ReflectResult(
                 text=agent_result.text,
+                abstained=agent_result.abstained,
                 document=agent_result.document,
                 based_on=based_on,
                 structured_output=agent_result.structured_output,

@@ -12546,6 +12546,23 @@ components:
             type: string
           nullable: true
           type: array
+        abstain:
+          default: false
+          description: "Allow an empty answer. When memory holds nothing that answers\
+            \ the query, the response has an empty `text` and `abstained: true`, instead\
+            \ of reflect searching on or failing. With a decision model the check\
+            \ costs no LLM call: reflect stops after the first search when the decision\
+            \ model judges it not enough. For callers that act on any text they get\
+            \ back, such as an agent's memory watcher that should speak only when\
+            \ memory has something to say."
+          title: Abstain
+          type: boolean
+        search_queries:
+          items:
+            type: string
+          maxItems: 8
+          nullable: true
+          type: array
       required:
       - query
       title: ReflectRequest
@@ -12597,6 +12614,12 @@ components:
             \ lists, bold/italic, code blocks, etc.)"
           title: Text
           type: string
+        abstained:
+          default: false
+          description: "True when the request set `abstain` and memory held nothing\
+            \ that answers it: `text` is empty."
+          title: Abstained
+          type: boolean
         based_on:
           $ref: '#/components/schemas/ReflectBasedOn'
         structured_output:

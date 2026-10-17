@@ -556,6 +556,10 @@ class ReflectResult(BaseModel):
     )
 
     text: str = Field(description="The formulated answer text")
+    abstained: bool = Field(
+        default=False,
+        description="True when the request allowed no answer and memory held nothing that answers it; text is empty.",
+    )
     document: Any | None = Field(
         default=None,
         exclude=True,

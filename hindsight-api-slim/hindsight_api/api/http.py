@@ -1621,6 +1621,34 @@ class ReflectRequest(ReflectDefaultOptions):
         default=None,
         description="Exclude specific mental models by ID from the reflect loop.",
     )
+    abstain: bool = Field(
+        default=False,
+        description="Allow an empty answer. When memory holds nothing that answers the query, the response "
+        "has an empty `text` and `abstained: true`, instead of reflect searching on or failing. With a "
+        "decision model, it is asked the query itself about the `context` and the best memories found: "
+        "when it sees nothing the answer depends on, reflect returns with no LLM call; otherwise the answer "
+        'reads only the memories it picked. Word the query as the question to decide ("does my change go '
+        'against a recorded decision?"); `context` is what it is about. For callers that act on any text '
+        "they get back, such as an agent's memory watcher that should speak only when memory has "
+        "something to say.",
+    )
+    search_queries: list[str] | None = Field(
+        default=None,
+        max_length=8,
+        description="What to search for in the first retrieval round, each query through every retrieval "
+        "layer, instead of an LLM rewriting the query (and context) into one search. Applies when reflect "
+        "runs with a decision model; otherwise the agent writes its own searches.",
+    )
+
+    @field_validator("search_queries")
+    @classmethod
+    def validate_search_queries(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        queries = [q.strip() for q in v if q.strip()]
+        if not queries:
+            raise ValueError("search_queries must hold at least one non-blank query. Use null to let reflect search.")
+        return queries
 
     @field_validator("fact_types")
     @classmethod
@@ -1776,6 +1804,10 @@ class ReflectResponse(BaseModel):
 
     text: str = Field(
         description="The reflect response as well-formatted markdown (headers, lists, bold/italic, code blocks, etc.)"
+    )
+    abstained: bool = Field(
+        default=False,
+        description="True when the request set `abstain` and memory held nothing that answers it: `text` is empty.",
     )
     based_on: ReflectBasedOn | None = Field(
         default=None,
@@ -6588,9 +6620,12 @@ def _register_routes(app: FastAPI):
         metrics = get_metrics_collector()
 
         try:
-            # Handle deprecated context field by concatenating with query
-            query = request.query
-            if request.context:
+            # Handle deprecated context field by concatenating with query. An abstain request keeps
+            # it apart: its decision model is asked the question itself, about that context.
+            query, context = request.query, None
+            if request.context and request.abstain:
+                context = request.context
+            elif request.context:
                 query = f"{request.query}\n\nAdditional context: {request.context}"
 
             # Use the memory system's reflect_async method (record metrics)
@@ -6606,7 +6641,7 @@ def _register_routes(app: FastAPI):
                         bank_id=bank_id,
                         query=query,
                         budget=request.budget,
-                        context=None,  # Deprecated, now concatenated with query
+                        context=context,  # concatenated with query, except for abstain
                         max_tokens=request.max_tokens,
                         response_schema=request.response_schema,
                         request_context=request_context,
@@ -6619,6 +6654,8 @@ def _register_routes(app: FastAPI):
                         exclude_mental_model_ids=request.exclude_mental_model_ids,
                         reflect_search_observations_max_tokens_override=request.reflect_search_observations_max_tokens,
                         reflect_search_observations_include_entities_override=request.reflect_search_observations_include_entities,
+                        abstain=request.abstain,
+                        search_queries=request.search_queries,
                     ),
                     operation="reflect",
                     bank_id=bank_id,
@@ -6698,6 +6735,7 @@ def _register_routes(app: FastAPI):
 
             return ReflectResponse(
                 text=core_result.text,
+                abstained=core_result.abstained,
                 based_on=based_on_result,
                 structured_output=core_result.structured_output,
                 structured_output_error=core_result.structured_output_error,
