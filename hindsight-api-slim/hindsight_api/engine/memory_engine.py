@@ -15831,6 +15831,11 @@ class MemoryEngine(MemoryEngineInterface):
         reflect_source_facts_max_tokens = config_dict.get(
             "reflect_source_facts_max_tokens", DEFAULT_REFLECT_SOURCE_FACTS_MAX_TOKENS
         )
+        if abstain and reflect_source_facts_max_tokens == -1:
+            # An abstain answer reads the source text under the memory it picked (see the agent's
+            # _answer_picked), reached through the observation's source fact ids — which recall
+            # attaches only when source facts are on. A small budget: the ids are what is needed.
+            reflect_source_facts_max_tokens = 1000
 
         # Reflect options an operator can default per bank: caller arg (the reflect
         # request) → bank reflect_default_options →

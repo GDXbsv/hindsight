@@ -166,6 +166,10 @@ _ABSTAIN_AT = 0.9
 # What an ``abstain`` reflect's answer reads: the candidates picked at least this likely (and the
 # likeliest one always), instead of the whole pruned round.
 _PICK_FLOOR = 0.1
+# How much of the picked memories' source an abstain answer reads: the facts expanded to their
+# chunks, deduplicated, cut at the same 8000 characters the client-side watcher's writer read.
+_ANSWER_SOURCE_FACTS = 12
+_ANSWER_SOURCE_CHARS = 8000
 # How many candidates the pick chooses from: the head of the round, as the client-side watcher
 # offered its decision model the top 4 of one search, or the best 10 across several.
 _PICK_FROM = 8
@@ -1117,6 +1121,28 @@ async def _run_reflect_agent_inner(
                 memories.append(f"- {_evidence_line(item)}")
             for chunk in (data.get("chunks") or {}).values():
                 memories.append(f"- {chunk.get('chunk_text', '') if isinstance(chunk, dict) else chunk}")
+        # The source text under what was picked. An observation is a summary, and source facts are
+        # off by default (and, when on, spent on the top-ranked observations, not the picked one):
+        # from the observation alone the answer missed an amended detail ("rounded up") and said
+        # NONE on 2 of 3 sde-bench overage-amended heads-ups. The client-side watcher's writer read
+        # the decision's source document, capped the same way.
+        fact_ids = [
+            str(fid)
+            for output in picked
+            if isinstance(output, tuple) and isinstance(output[0], dict)
+            for item in output[0].get("observations") or []
+            for fid in item.get("source_fact_ids") or []
+        ][:_ANSWER_SOURCE_FACTS]
+        if fact_ids and store_document_text:
+            expanded = await expand_fn(fact_ids, "chunk")
+            chunks: dict[str, str] = {}
+            for result in expanded.get("results") or []:
+                chunk = result.get("chunk") if isinstance(result, dict) else None
+                if isinstance(chunk, dict) and chunk.get("text"):
+                    chunks.setdefault(str(chunk.get("id")), str(chunk["text"]))
+            source = "\n\n".join(chunks.values())[:_ANSWER_SOURCE_CHARS]
+            if source:
+                memories.append(f"\n## Source text of these memories\n{source}")
         answer = await _tracked_llm_call(
             build_abstain_answer_prompt(query, context, memories, llm_output_language),
             "abstain_answer",

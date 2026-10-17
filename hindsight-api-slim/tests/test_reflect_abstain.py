@@ -61,7 +61,9 @@ def _observations() -> AsyncMock:
     )
 
 
-async def _reflect(provider, *, pick=None, prune=None, sufficient=None, search_observations=None, **kwargs):
+async def _reflect(
+    provider, *, pick=None, prune=None, sufficient=None, search_observations=None, expand=None, **kwargs
+):
     return await run_reflect_agent(
         llm_config=provider,
         bank_id="b",
@@ -71,7 +73,7 @@ async def _reflect(provider, *, pick=None, prune=None, sufficient=None, search_o
         read_mental_models_fn=AsyncMock(return_value={"mental_models": []}),
         search_observations_fn=search_observations or _observations(),
         recall_fn=AsyncMock(return_value={"memories": []}),
-        expand_fn=AsyncMock(return_value={"memories": []}),
+        expand_fn=expand or AsyncMock(return_value={"memories": []}),
         has_mental_models=False,
         include_observations=True,
         include_recall=False,
@@ -213,3 +215,43 @@ async def test_a_failed_pick_falls_back_to_the_sufficiency_check():
     result = await _reflect(provider, pick=pick, sufficient=AsyncMock(return_value=False))
 
     assert result.abstained, "the sufficiency check still decides, and abstains on not enough"
+
+
+@pytest.mark.asyncio
+async def test_the_answer_reads_the_facts_under_the_picked_memory():
+    """An observation is a summary: the answer needs the facts it was built from (amended details)."""
+    provider = _ScriptedProvider([], answer="Round the prorated quota UP.")
+    search = AsyncMock(
+        return_value={
+            "observations": [{"id": "obs-q", "text": "overage_charge prorates the quota", "source_fact_ids": ["f1"]}],
+            "source_facts": {"f1": {"id": "f1", "text": "the prorated quota is rounded up with ceil"}},
+        }
+    )
+    pick = AsyncMock(return_value=EvidencePick(none=0.05, candidates=[0.95]))
+
+    await _reflect(provider, pick=pick, search_observations=search)
+
+    (prompt,) = provider.answer_prompts
+    assert "source: the prorated quota is rounded up with ceil" in prompt
+
+
+@pytest.mark.asyncio
+async def test_the_answer_reads_the_source_text_of_the_picked_memory():
+    """Source facts are off by default: the picked memory's facts are expanded to their chunks."""
+    provider = _ScriptedProvider([], answer="Round the prorated quota UP.")
+    search = AsyncMock(
+        return_value={
+            "observations": [{"id": "obs-q", "text": "overage_charge prorates", "source_fact_ids": ["f1", "f2"]}]
+        }
+    )
+    chunk = {"id": "c1", "text": "user: the allowance is rounded UP, never truncated"}
+    expand = AsyncMock(
+        return_value={"results": [{"memory_id": "f1", "chunk": chunk}, {"memory_id": "f2", "chunk": chunk}]}
+    )
+    pick = AsyncMock(return_value=EvidencePick(none=0.05, candidates=[0.95]))
+
+    await _reflect(provider, pick=pick, search_observations=search, expand=expand)
+
+    assert expand.await_args.args == (["f1", "f2"], "chunk")
+    (prompt,) = provider.answer_prompts
+    assert prompt.count("the allowance is rounded UP, never truncated") == 1, "one chunk, once"
