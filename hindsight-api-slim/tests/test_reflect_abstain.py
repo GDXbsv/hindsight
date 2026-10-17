@@ -6,6 +6,7 @@ empty and cheap: no LLM call when the decision model already sees nothing that a
 tests pin the mechanics with a scripted provider; whether the decisions hold up is the evals' job.
 """
 
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -34,9 +35,12 @@ class _ScriptedProvider:
 
     async def call(self, *, messages, **_):
         prompt = messages[-1]["content"]
-        if "## Memories" in prompt:  # the abstain answer, written from what was picked
+        if "## Memories" in prompt:  # the abstain answer, written from what was picked (structured)
             self.answer_prompts.append(prompt)
-            return LLMCallResult(content=self.answer, usage=TokenUsage(input_tokens=1, output_tokens=1))
+            reply = (
+                {"applies": False, "answer": ""} if self.answer == "NONE" else {"applies": True, "answer": self.answer}
+            )
+            return LLMCallResult(content=json.dumps(reply), usage=TokenUsage(input_tokens=1, output_tokens=1))
         self.rewrites += 1
         return LLMCallResult(content=prompt, usage=TokenUsage(input_tokens=1, output_tokens=1))
 
@@ -139,8 +143,8 @@ async def test_the_pick_is_asked_the_question_about_the_context_over_each_search
 
 
 @pytest.mark.asyncio
-async def test_an_answer_of_none_is_silence_not_text():
-    """Below the bar the LLM decides; its NONE is an empty answer, not prose."""
+async def test_an_answer_that_does_not_apply_is_silence_not_text():
+    """Below the bar the LLM decides; `applies: false` is an empty answer, not prose."""
     provider = _ScriptedProvider([], answer="NONE")
     pick = AsyncMock(return_value=EvidencePick(none=0.6, candidates=[0.35, 0.05]))
 
@@ -255,3 +259,21 @@ async def test_the_answer_reads_the_source_text_of_the_picked_memory():
     assert expand.await_args.args == (["f1", "f2"], "chunk")
     (prompt,) = provider.answer_prompts
     assert prompt.count("the allowance is rounded UP, never truncated") == 1, "one chunk, once"
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_answer_is_silence():
+    provider = _ScriptedProvider([])
+    provider.call = AsyncMock(  # type: ignore[method-assign]
+        side_effect=lambda **k: LLMCallResult(
+            content="Nothing conflicts."
+            if "## Memories" in k["messages"][-1]["content"]
+            else k["messages"][-1]["content"],
+            usage=TokenUsage(input_tokens=1, output_tokens=1),
+        )
+    )
+    pick = AsyncMock(return_value=EvidencePick(none=0.5, candidates=[0.4, 0.1]))
+
+    result = await _reflect(provider, pick=pick)
+
+    assert result.abstained and result.text == ""

@@ -13,6 +13,7 @@ answers the pick's "none" with ``stubs.rerank.pick_none``.
 from __future__ import annotations
 
 import contextlib
+import json
 import uuid
 from collections.abc import AsyncIterator
 
@@ -75,7 +76,7 @@ async def test_nothing_to_say_costs_no_llm_call(typesafe_client, llm, stubs, dec
 async def test_something_to_say_is_written_from_what_was_picked(typesafe_client, llm, stubs, decision_bank):
     stubs.rerank.cut_level = 5
     stubs.rerank.pick_none = 0.1
-    llm.on_step("reflect_abstain_answer").returns_text(NOTE)
+    llm.on_step("reflect_abstain_answer").returns_text(json.dumps({"applies": True, "answer": NOTE}))
 
     response = await typesafe_client.areflect(
         bank_id=decision_bank,
@@ -93,10 +94,10 @@ async def test_something_to_say_is_written_from_what_was_picked(typesafe_client,
 
 
 async def test_the_llm_finding_nothing_applies_is_silence_not_text(typesafe_client, llm, stubs, decision_bank):
-    """Unsure, the decision model leaves it to the LLM; its NONE comes back empty, not as text."""
+    """Unsure, the decision model leaves it to the LLM; its "does not apply" comes back empty, not as text."""
     stubs.rerank.cut_level = 5
     stubs.rerank.pick_none = 0.6
-    llm.on_step("reflect_abstain_answer").returns_text("NONE")
+    llm.on_step("reflect_abstain_answer").returns_text(json.dumps({"applies": False, "answer": ""}))
 
     response = await typesafe_client.areflect(
         bank_id=decision_bank, query=QUESTION, abstain=True, search_queries=SEARCHES

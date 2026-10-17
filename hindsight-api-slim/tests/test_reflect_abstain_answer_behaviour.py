@@ -1,15 +1,17 @@
 """An abstain reflect's answer: written from the picked memories, NONE when they do not answer.
 
 The decision model picks the memories; the LLM then reads only those and either answers or says
-NONE (the agent treats NONE as silence, see ``_answer_picked``). Whether a model follows that
+that nothing applies (``applies: false``, see ``_answer_picked``). Whether a model follows that
 cannot be simulated with MockLLM, so this drives the real prompt pair. The note is judged; the
-NONE case is checked by the same parse the agent applies, since NONE is a contract the code reads,
-not a wording.
+nothing-applies case is checked through the same parse the agent applies, since it is a field the
+code reads, not a wording.
 """
 
 import pytest
 
 from hindsight_api import LLMConfig
+from hindsight_api.engine.reflect.agent import _abstain_answer_from
+from hindsight_api.engine.reflect.models import AbstainAnswer
 from hindsight_api.engine.reflect.prompts import build_abstain_answer_prompt, build_abstain_answer_system_prompt
 from tests.llm_judge import assert_meets_criteria
 
@@ -42,12 +44,14 @@ async def _answer(question: str, context: str) -> str:
         ],
         scope="reflect",
         temperature=0.0,
+        response_format=AbstainAnswer,
     )
-    return str(result.content or "").strip()
+    reply = _abstain_answer_from(result.content)
+    return reply.answer.strip() if reply.applies else ""
 
 
 def _is_none(answer: str) -> bool:
-    return answer.strip().strip("\"'`.*").upper() in ("", "NONE")
+    return not answer
 
 
 @pytest.mark.asyncio
@@ -70,7 +74,7 @@ async def test_a_change_against_the_memory_gets_the_recorded_value():
 
 
 @pytest.mark.asyncio
-async def test_a_change_that_follows_the_memory_is_none():
+async def test_a_change_that_follows_the_memory_does_not_apply():
     answer = await _answer(
         _CONFLICT,
         "MY REQUEST:\nFix parse_quantity so pods get the memory they ask for.\n\n"

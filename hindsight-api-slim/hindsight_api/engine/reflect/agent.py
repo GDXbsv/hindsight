@@ -15,6 +15,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
+from pydantic import BaseModel
+
 from ...cancellation import OperationCancelledError
 from ...config import DEFAULT_RECALL_CHUNKS_MAX_TOKENS, DEFAULT_RECALL_MAX_TOKENS, get_config
 from ..llm_interface import LLM_TOOL_CHOICE_AUTO, LLMToolChoice
@@ -22,6 +24,7 @@ from ..llm_trace import LLMQueueWait, reset_queue_wait_sink, set_queue_wait_sink
 from ..llm_transport import describe_llm_error
 from ..response_models import LLMToolCall, LLMToolCallResult
 from .models import (
+    AbstainAnswer,
     DirectiveInfo,
     LengthRewrite,
     LLMCall,
@@ -945,11 +948,14 @@ async def _run_reflect_agent_inner(
         system_prompt: str,
         completion_cap: int | None,
         temperature: float | None = None,
-    ) -> str:
+        response_format: type[BaseModel] | None = None,
+    ) -> Any:
         """One tool-less LLM call with usage/trace accounting folded in.
 
         ``temperature`` defaults to the reflect temperature, which is tuned for
         writing an answer; callers that extract rather than write override it.
+        With ``response_format`` the provider's structured reply is returned as it came
+        (a model or its JSON); otherwise the stripped text.
         """
         nonlocal total_input_tokens, total_output_tokens, total_cached_tokens, total_thoughts_tokens
         llm_start = time.perf_counter()
@@ -964,6 +970,7 @@ async def _run_reflect_agent_inner(
                 scope="reflect",
                 temperature=get_config().llm_temperature_reflect if temperature is None else temperature,
                 max_completion_tokens=completion_cap,
+                response_format=response_format,
             )
         finally:
             reset_queue_wait_sink(queue_token)
@@ -983,7 +990,7 @@ async def _run_reflect_agent_inner(
                 "output_tokens": usage.output_tokens,
             }
         )
-        return response.strip()
+        return response if response_format is not None else response.strip()
 
     def _document_rejection_messages(
         done_call: "LLMToolCall", exc: DocumentSectionsInvalidError
@@ -1143,13 +1150,19 @@ async def _run_reflect_agent_inner(
             source = "\n\n".join(chunks.values())[:_ANSWER_SOURCE_CHARS]
             if source:
                 memories.append(f"\n## Source text of these memories\n{source}")
-        answer = await _tracked_llm_call(
-            build_abstain_answer_prompt(query, context, memories, llm_output_language),
-            "abstain_answer",
-            build_abstain_answer_system_prompt(bank_profile.get("mission"), llm_output_language, directives),
-            synthesis_max_completion_tokens,
+        # Structured, not a sentinel: asked to reply NONE when nothing applies, flash still wrote
+        # "Nothing conflicts." now and then, and the watcher delivered it as a note.
+        reply = _abstain_answer_from(
+            await _tracked_llm_call(
+                build_abstain_answer_prompt(query, context, memories, llm_output_language),
+                "abstain_answer",
+                build_abstain_answer_system_prompt(bank_profile.get("mission"), llm_output_language, directives),
+                synthesis_max_completion_tokens,
+                response_format=AbstainAnswer,
+            )
         )
-        if answer.strip().strip("\"'`.*").upper() in ("", _NOTHING_TO_SEARCH):
+        answer = reply.answer.strip()
+        if not reply.applies or answer.strip("\"'`.*").upper() in ("", _NOTHING_TO_SEARCH):
             return _abstained(iterations_completed)
         logger.info(f"[REFLECT {reflect_id}] Answered from {len(memories)} picked memory lines.")
         return ReflectAgentResult(
@@ -2659,6 +2672,19 @@ def _decode_json_argument(raw: str, finish_reason: str | None, field: str) -> An
         raise DocumentSectionsInvalidError(
             [f"{field}: not valid JSON ({exc.msg} at char {exc.pos} of {len(raw)}); check the closing brackets"]
         ) from exc
+
+
+def _abstain_answer_from(raw: Any) -> AbstainAnswer:
+    """The structured abstain answer; an unreadable reply is silence, never a guessed note."""
+    try:
+        if isinstance(raw, AbstainAnswer):
+            return raw
+        if isinstance(raw, str):
+            return AbstainAnswer.model_validate_json(raw)
+        return AbstainAnswer.model_validate(raw)
+    except ValueError:
+        logger.warning(f"Abstain answer did not parse, treating it as nothing to say: {str(raw)[:200]!r}")
+        return AbstainAnswer(applies=False)
 
 
 def _says_nothing(args: dict[str, Any]) -> bool:

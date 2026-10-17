@@ -135,6 +135,15 @@ class LengthRewrite(BaseModel):
     thoughts_tokens: int = Field(default=0, description="Reasoning/thinking tokens, when reported by the provider")
 
 
+class AbstainAnswer(BaseModel):
+    """An abstain reflect's answer, written from the memories the decision model picked."""
+
+    applies: bool = Field(
+        description="True only if the memories state what the question asks for; false when the true answer is no or nothing."
+    )
+    answer: str = Field(default="", description="The answer, when it applies; empty otherwise.")
+
+
 class ReflectAgentResult(BaseModel):
     """Result from the reflect agent."""
 

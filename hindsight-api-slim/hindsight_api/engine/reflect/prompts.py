@@ -1171,8 +1171,8 @@ FINAL_SYSTEM_PROMPT = build_final_system_prompt()
 _ABSTAIN_ANSWER_RULES = """Answer the question from the memories given, and from nothing else.
 
 - Use only what the memories state. Never invent a value, name or rule.
-- If the memories do not state what the question asks for (they only share its topic, or the true answer is no or nothing), reply with exactly NONE and nothing else — even where the question says to reply with nothing. Never write "nothing conflicts", "no decision applies" or the like: that is NONE.
-- Otherwise answer directly, in the form the question asks for, copying exact values and literals verbatim.
+- `applies` is false when the memories do not state what the question asks for: they only share its topic, or the true answer is no or nothing (nothing conflicts, no decision applies). Then leave `answer` empty.
+- Otherwise `applies` is true and `answer` answers directly, in the form the question asks for, copying exact values and literals verbatim.
 - No preamble, no reasoning, no follow-up questions: the reader acts on any text you write."""
 
 
