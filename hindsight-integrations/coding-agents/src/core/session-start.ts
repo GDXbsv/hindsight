@@ -20,6 +20,7 @@
  * "Empty" means no git documents AND no survey-baseline marker: under `gitIngest: "none"` no git
  * document is ever written, and the markers are what show the repo was already surveyed (#5124).
  */
+import { WATCH_DECLARATION } from "./watch";
 import { gitHeadSha, gitLogIsCurrent, hasGitHistory, commitsSince } from "./git";
 import { DEEPEN_DIFF_TARGET } from "./status";
 import { startBackgroundSeed } from "./seed";
@@ -349,10 +350,15 @@ export async function buildSessionStartContext(args: {
     }
     /* fail-open preamble */
   }
-  const additionalContext = buildKnowledgePreamble(pages, {
+  const preamble = buildKnowledgePreamble(pages, {
     reflectOnNewGoals: cfg.autoInject !== "reflect",
     extra: cfg.toolGuideExtra,
   });
+  // The watcher's notes are trusted only when the agent knows they are coming (see WATCH_DECLARATION).
+  const additionalContext =
+    cfg.autoInject === "watch" && harness === "claude-code"
+      ? `${preamble}\n\n${WATCH_DECLARATION}`
+      : preamble;
   // An empty page roster is NOT an empty bank: a bank with memories and no pages still answers a
   // reflect (#5209), so only the confirmed-empty probe above defers it.
   const deferInitialReflect = bankEmpty;

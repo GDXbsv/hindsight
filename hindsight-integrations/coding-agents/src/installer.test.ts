@@ -128,7 +128,12 @@ describe("claude-code installer", () => {
     expect(run(["install", "claude-code"], ctx)).toBe(0);
     const settings = readJson(settingsPath(ctx));
     const hooks = settings.hooks;
-    expect(Object.keys(hooks).sort()).toEqual(["SessionStart", "Stop", "UserPromptSubmit"]);
+    expect(Object.keys(hooks).sort()).toEqual([
+      "PostToolUse",
+      "SessionStart",
+      "Stop",
+      "UserPromptSubmit",
+    ]);
     const inner = (ev: string) => hooks[ev][0].hooks[0];
     expect(inner("SessionStart").command).toContain(join(ctx.dist, "claude-sessionstart-hook.js"));
     expect(inner("UserPromptSubmit").command).toContain(join(ctx.dist, "claude-hook.js"));
@@ -138,7 +143,19 @@ describe("claude-code installer", () => {
     expect(inner("Stop").timeout).toBe(60);
     for (const ev of ["SessionStart", "UserPromptSubmit", "Stop"]) {
       expect(inner(ev).type).toBe("command");
+      expect(inner(ev).async).toBeUndefined();
     }
+  });
+
+  it("registers the memory watcher as an async PostToolUse hook on every tool", () => {
+    // async: Claude Code must never wait on the watcher. No matcher: a heads-up rides the first
+    // read, before the agent has edited anything.
+    const ctx = makeCtx();
+    expect(run(["install", "claude-code"], ctx)).toBe(0);
+    const [group] = readJson(settingsPath(ctx)).hooks.PostToolUse;
+    expect(group.matcher).toBeUndefined();
+    expect(group.hooks[0]).toMatchObject({ type: "command", async: true, timeout: 120 });
+    expect(group.hooks[0].command).toContain(join(ctx.dist, "claude-watch-hook.js"));
   });
 
   it("preserves pre-existing foreign hook entries and appends ours", () => {

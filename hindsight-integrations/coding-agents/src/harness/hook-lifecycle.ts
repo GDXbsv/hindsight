@@ -58,6 +58,9 @@ export interface HookInstallSpec {
   entry: string;
   /** In `HookHarnessSpec.timeoutUnit` — NOT always seconds. See that field. */
   timeout?: number;
+  /** Claude Code's `async`: the host starts the hook and goes on without waiting, and delivers its
+   *  `additionalContext` on the next turn. Only the `nested` style writes it. */
+  async?: boolean;
 }
 
 /**
@@ -292,6 +295,11 @@ export const HOOK_HARNESSES: Record<HookHarnessName, HookHarnessSpec> = {
       prompt: { event: "UserPromptSubmit", entry: "claude-hook.js", timeout: 30 },
       stop: { event: "Stop", entry: "claude-stop-hook.js", timeout: 60 },
     },
+    // The memory watcher (autoInject: "watch"; exits at once otherwise). Every tool, not only edits:
+    // a heads-up must reach the agent on its first read, before it has changed anything.
+    additionalHooks: [
+      { event: "PostToolUse", entry: "claude-watch-hook.js", timeout: 120, async: true },
+    ],
     sessionStart: { ...standardSessionStart("claude-code"), accept: notGrokHosted },
     prompt: { ...claudePrompt, accept: notGrokHosted },
     retain: {

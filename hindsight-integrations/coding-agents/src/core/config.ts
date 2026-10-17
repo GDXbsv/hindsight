@@ -128,7 +128,9 @@ export interface RawConfig {
    *    "reflect" — one low-budget reflect synthesis (falls back to pages, then recall, on timeout/5xx)
    *    "pages"   — the knowledge pages matching the prompt by search (retrieval only, no LLM)
    *    "recall"  — the bank's memories recalled for the prompt (`recallOptions`; no LLM)
-   *    "none"    — nothing; the tool guide routes new goals through pages before optional reflection */
+   *    "none"    — nothing; the tool guide routes new goals through pages before optional reflection
+   *    "watch"   — nothing up front: a memory watcher follows the session in the background and
+   *                speaks only when memory holds what the agent must hear (Claude Code; see core/watch.ts) */
   autoInject?: AutoInject;
   /** @deprecated Use `autoInject`. Still honoured: false = `autoInject: "none"`, true = "reflect";
    *  ignored when `autoInject` is set. Setting it logs a deprecation warning. */
@@ -573,8 +575,8 @@ function resolveDefaultBankConfig(raw: RawConfig["defaultBankConfig"]): Record<s
 }
 
 /** Apply defaults to a raw (file) config. Pure — the single place the defaults live. */
-export type AutoInject = "reflect" | "pages" | "recall" | "none";
-const AUTO_INJECT_MODES: readonly AutoInject[] = ["reflect", "pages", "recall", "none"];
+export type AutoInject = "reflect" | "pages" | "recall" | "none" | "watch";
+const AUTO_INJECT_MODES: readonly AutoInject[] = ["reflect", "pages", "recall", "none", "watch"];
 
 /** `autoInject` wins; otherwise the deprecated `autoReflect: false` means "none". */
 function resolveAutoInject(raw: RawConfig): AutoInject {

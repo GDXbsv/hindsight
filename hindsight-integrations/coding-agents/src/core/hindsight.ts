@@ -834,6 +834,64 @@ export class HindsightClient {
   }
 
   /**
+   * Reflect that may answer nothing (`abstain`): the memory watcher's one call per moment. The
+   * server's decision model is asked `question` about `context` over the memories `searchQueries`
+   * find; most moments come back empty with no LLM call. `memoryIds` are the memories the answer
+   * came from (observations only). `supported` is false on a server too old to abstain, which
+   * answers every moment and must not be listened to.
+   */
+  async reflectMaybe(
+    question: string,
+    opts: { context: string; searchQueries: string[]; timeoutMs: number }
+  ): Promise<{ text: string; memoryIds: string[]; supported: boolean }> {
+    const r = await this.req(
+      "POST",
+      this.bankUrl("/reflect"),
+      {
+        query: question,
+        context: opts.context,
+        abstain: true,
+        search_queries: opts.searchQueries,
+        budget: "low",
+        max_tokens: 600,
+        fact_types: ["observation"],
+        exclude_mental_models: true,
+        include: { facts: {} },
+      },
+      [],
+      opts.timeoutMs
+    );
+    if (r.status === 404) return { text: "", memoryIds: [], supported: true };
+    const data = (await r.json()) as {
+      text?: string;
+      abstained?: boolean;
+      based_on?: { memories?: { id: string }[] };
+    };
+    return {
+      text: data.abstained ? "" : (data.text ?? "").trim(),
+      memoryIds: (data.based_on?.memories ?? []).map((m) => m.id),
+      supported: typeof data.abstained === "boolean",
+    };
+  }
+
+  /** One memory: its document, date, and (for an observation) the memories it was built from. */
+  async getMemory(id: string): Promise<{
+    document_id?: string | null;
+    mentioned_at?: string | null;
+    source_memory_ids?: string[];
+  } | null> {
+    const r = await this.req("GET", this.bankUrl(`/memories/${encodeURIComponent(id)}`));
+    return r.status === 404 ? null : ((await r.json()) as Record<string, never>);
+  }
+
+  /** A document's stored text, or "" when the bank keeps none. */
+  async documentText(id: string): Promise<string> {
+    const r = await this.req("GET", this.bankUrl(`/documents/${encodeURIComponent(id)}`));
+    if (r.status === 404) return "";
+    return String(((await r.json()) as { original_text?: string }).original_text ?? "");
+  }
+
+  /**
    * Raw recall with no LLM in the loop, so it still answers when reflect's synthesis times out or
    * 5xxs. The body is `recallOptions` (consolidated observations by default) — a bank that grows
    * no observations widens it rather than getting nothing back. Returns the texts in rank order.

@@ -224,8 +224,15 @@ function setOrDelete(obj: Record<string, any>, key: string, arr: any[]): void {
   else delete obj[key];
 }
 
-const cmdHook = (dist: string, file: string, timeout: number) => ({
-  hooks: [{ type: "command", command: `node "${join(dist, file)}"`, timeout }],
+const cmdHook = (dist: string, file: string, timeout: number, async?: boolean) => ({
+  hooks: [
+    {
+      type: "command",
+      command: `node "${join(dist, file)}"`,
+      timeout,
+      ...(async ? { async: true } : {}),
+    },
+  ],
 });
 
 /** ZCode's registration shape: the same matcher group, but an argv rather than a command STRING —
@@ -278,7 +285,7 @@ function mergeHarnessHooks(
     installedEvents.add(hook.event);
     const entry =
       spec.configStyle === "nested"
-        ? cmdHook(dist, hook.entry, hook.timeout!)
+        ? cmdHook(dist, hook.entry, hook.timeout!, hook.async)
         : spec.configStyle === "process"
           ? processHook(dist, hook.entry, hook.timeout!)
           : {
