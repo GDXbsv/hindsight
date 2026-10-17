@@ -77,7 +77,9 @@ const PRIORITY: Record<Trigger, number> = { task: 0, plan: 1, failure: 2, comman
 export const HEADSUP_Q =
   "Before I start on this request: which project decision recorded in memory (an exact value, a rule, " +
   "an exception) about exactly the code this request will change must my fix respect, that the request " +
-  "itself does not state? Tell me in at most 70 words, as 'Before you change <the code>: <every such rule, " +
+  "itself does not state? Only what someone decided (a chosen value or rule, an exception, a rejected " +
+  "option), not what the code already does: I can read that myself. Tell me in at most 70 words, as " +
+  "'Before you change <the code>: <every such rule, " +
   "in its final form>', copying exact literals verbatim. If memory records no such decision about this " +
   "code, reply with nothing.";
 
@@ -151,7 +153,7 @@ export function stepsOf(line: Record<string, unknown>): Step[] {
   return out;
 }
 
-/** `["/bin/zsh", "-lc", script]` → script; Codex's `cmd` is already a string. */
+/** `["/bin/zsh", "-lc", script]` → script; a `cmd` string is already one. */
 function codexCommand(args: Record<string, unknown>): string {
   const c = args.cmd ?? args.command;
   if (typeof c === "string") return c;
@@ -159,44 +161,54 @@ function codexCommand(args: Record<string, unknown>): string {
   return c.length === 3 && /^-[a-z]*c$/.test(String(c[1])) ? String(c[2]) : c.join(" ");
 }
 
-/** One Codex rollout line as the same steps: its prompt (the UserMessage event, never the startup
- *  context Codex also sends as a user message), what it says, its shell commands and patches —
- *  read as Claude's Bash and Edit, so one set of rules judges both — and what they return. */
+/** One Codex rollout line as the same steps: its prompt, what it says, its shell commands and file
+ *  changes — read as Claude's Bash and Edit, so one set of rules judges both — and what they return.
+ *  Read from the `item_completed` events only: each carries one finished step in one shape, whether
+ *  the model called `exec_command`/`apply_patch` directly or through a code-mode `exec` script (whose
+ *  calls are JavaScript in a `custom_tool_call` that the response items never break apart). The
+ *  response items also hold startup context sent as a user message, which is not the prompt. */
 export function codexStepsOf(line: Record<string, unknown>): Step[] {
   const p = (line.payload ?? {}) as Record<string, unknown>;
+  if (line.type !== "event_msg" || p.type !== "item_completed") return [];
   const item = (p.item ?? {}) as Record<string, unknown>;
+  const id = String(item.id ?? "");
   const text = (content: unknown): string =>
     (Array.isArray(content) ? (content as Record<string, unknown>[]) : [])
       .map((c) => (typeof c.text === "string" ? c.text : ""))
       .filter(Boolean)
       .join("\n");
-  if (line.type === "event_msg" && p.type === "item_completed" && item.type === "UserMessage")
-    return [{ kind: "ask", text: clip(text(item.content), 4000) }];
-  if (line.type !== "response_item") return [];
-  const id = String(p.call_id ?? "");
-  if (p.type === "message" && p.role === "assistant") {
-    const said = text(p.content);
-    return said ? [{ kind: "say", text: clip(said, 3000) }] : [];
-  }
-  if (p.type === "function_call") {
-    let args: Record<string, unknown> = {};
-    try {
-      args = JSON.parse(String(p.arguments ?? "{}")) as Record<string, unknown>;
-    } catch {
-      /* unreadable arguments: the call still counts as a step */
+  switch (item.type) {
+    case "UserMessage":
+      return [{ kind: "ask", text: clip(text(item.content), 4000) }];
+    case "AgentMessage": {
+      const said = text(item.content);
+      return said ? [{ kind: "say", text: clip(said, 3000) }] : [];
     }
-    const name = String(p.name ?? "");
-    return name === "exec_command" || name === "shell"
-      ? [{ kind: "tool", text: "", id, tool: "bash", input: { command: codexCommand(args) } }]
-      : [{ kind: "tool", text: "", id, tool: name, input: args }];
+    case "CommandExecution":
+      return [
+        { kind: "tool", text: "", id, tool: "bash", input: { command: codexCommand(item) } },
+        {
+          kind: "result",
+          text: clip(String(item.aggregated_output ?? item.stdout ?? ""), 3000),
+          id,
+          error: item.exit_code !== undefined && Number(item.exit_code) !== 0,
+        },
+      ];
+    case "FileChange": {
+      const files = Object.keys((item.changes ?? {}) as Record<string, unknown>);
+      return [
+        { kind: "tool", text: "", id, tool: "edit", input: { file_path: files.join(", ") } },
+        {
+          kind: "result",
+          text: clip(String(item.stdout ?? ""), 3000),
+          id,
+          error: item.status === "failed",
+        },
+      ];
+    }
+    default:
+      return [];
   }
-  if (p.type === "custom_tool_call" && p.name === "apply_patch") {
-    const file = /^\*\*\* (?:Update|Add|Delete) File: (.+)$/m.exec(String(p.input ?? ""))?.[1];
-    return [{ kind: "tool", text: "", id, tool: "edit", input: { file_path: file ?? "" } }];
-  }
-  if (p.type === "function_call_output" || p.type === "custom_tool_call_output")
-    return [{ kind: "result", text: clip(String(p.output ?? ""), 3000), id }];
-  return [];
 }
 
 const isOwnNote = (text: string): boolean => text.includes(NOTE_LEAD.split(" (")[0]);
@@ -238,7 +250,10 @@ export function readStep(state: WatchState, step: Step): void {
     }
   }
   if (said) state.recent = [...state.recent, said].slice(-12);
-  if (trigger && (!state.pending || PRIORITY[trigger] >= PRIORITY[state.pending.trigger]))
+  // A new request is never pushed out: read in one pass with the agent's first "I'll check..." (a
+  // plan, heavier), it used to be replaced, and the heads-up for the request was never given.
+  const keep = state.pending?.trigger === "task" && trigger !== "task";
+  if (trigger && !keep && (!state.pending || PRIORITY[trigger] >= PRIORITY[state.pending.trigger]))
     state.pending = { trigger, text };
 }
 
@@ -353,18 +368,29 @@ export function readable(text: string): string {
     .join("\n");
 }
 
-const words = (s: string): Set<string> => new Set(s.toLowerCase().match(/[a-z0-9_]{3,}/g) ?? []);
+// Numbers of any length count: a changed value ("7", not "10") is often the whole story.
+const words = (s: string): Set<string> =>
+  new Set(s.toLowerCase().match(/[a-z_][a-z0-9_]{2,}|\d+(?:\.\d+)?/g) ?? []);
 
-/** The source sentence sharing the most words with the note: verbatim by construction, no model call. */
+/** The source sentence sharing the most words with the note, less two per number the note does not
+ *  have: verbatim by construction, no model call. By overlap alone the line stating the old value
+ *  ("10 # Current setting") beat the rule (7). On a tie the later sentence wins: a chat settles on its
+ *  last word ("leave it at 7" after trying 5). */
 export function bestSentence(text: string, like: string): string {
   const want = words(like);
+  const isNum = (w: string) => /^\d/.test(w);
   let best = "";
-  let bestScore = 0;
+  let bestScore = -Infinity;
   for (const s of text.split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim())) {
     if (s.length < 20 || s.length > 300) continue;
-    let score = 0;
-    for (const w of words(s)) if (want.has(w)) score++;
-    if (score > bestScore) [best, bestScore] = [s, score];
+    let shared = 0;
+    let foreign = 0;
+    for (const w of words(s))
+      if (want.has(w)) shared++;
+      else if (isNum(w)) foreign++;
+    // The penalty only ranks: "K is 1024, never 1000" still quotes a note that says 1024.
+    if (shared > 0 && shared - 2 * foreign >= bestScore)
+      [best, bestScore] = [s, shared - 2 * foreign];
   }
   return best;
 }

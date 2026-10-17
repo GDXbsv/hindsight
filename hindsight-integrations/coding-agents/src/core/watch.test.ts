@@ -120,69 +120,77 @@ describe("reading the agent's transcript", () => {
 });
 
 describe("reading a Codex rollout", () => {
-  const item = (payload: Record<string, unknown>) => ({ type: "response_item", payload });
+  const done = (item: Record<string, unknown>) => ({
+    type: "event_msg",
+    payload: { type: "item_completed", item },
+  });
   const codex = (lines: Record<string, unknown>[]) => {
     const state = emptyWatchState();
     for (const line of lines) for (const step of codexStepsOf(line)) readStep(state, step);
     return state;
   };
+  const run = (id: string, script: string, exit_code = 0, out = "") =>
+    done({
+      type: "CommandExecution",
+      id,
+      command: ["/bin/zsh", "-lc", script],
+      aggregated_output: out,
+      exit_code,
+    });
 
   it("the prompt is the UserMessage event, not the startup context sent as a user message", () => {
     const state = codex([
-      item({
-        type: "message",
-        role: "user",
-        content: [{ type: "input_text", text: "# AGENTS.md" }],
-      }),
       {
-        type: "event_msg",
+        type: "response_item",
         payload: {
-          type: "item_completed",
-          item: { type: "UserMessage", content: [{ type: "text", text: "Fix parse_quantity." }] },
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "# AGENTS.md" }],
         },
       },
+      done({ type: "UserMessage", content: [{ type: "text", text: "Fix parse_quantity." }] }),
     ]);
     expect(state.pending).toEqual({ trigger: "task", text: "Fix parse_quantity." });
   });
 
-  it("a shell command is read as Bash, a patch as an edit once its output is back", () => {
-    const call = (id: string, cmd: string) =>
-      item({
-        type: "function_call",
-        name: "exec_command",
-        call_id: id,
-        arguments: JSON.stringify({ cmd }),
-      });
-    expect(codex([call("c1", "rg parse_quantity")]).pending).toBeNull();
-    expect(codex([call("c1", "rm -rf build")]).pending?.trigger).toBe("command");
+  it("a command is read as Bash, a file change as an edit, however the model called them", () => {
+    expect(codex([run("c1", "rg parse_quantity")]).pending).toBeNull();
+    expect(codex([run("c1", "rm -rf build")]).pending?.trigger).toBe("command");
+    // A code-mode `exec` script's calls only show up broken apart in these events.
     const patched = codex([
-      item({
-        type: "custom_tool_call",
-        name: "apply_patch",
-        call_id: "p1",
-        input: "*** Begin Patch\n*** Update File: units.py\n-K = 1000\n+K = 1024\n*** End Patch",
+      {
+        type: "response_item",
+        payload: { type: "custom_tool_call", name: "exec", input: "await tools.apply_patch(...)" },
+      },
+      done({
+        type: "FileChange",
+        id: "p1",
+        changes: { "/w/units.py": { type: "update" } },
+        status: "completed",
       }),
-      item({ type: "custom_tool_call_output", call_id: "p1", output: "Success." }),
     ]);
     expect(patched.pending?.trigger).toBe("edit");
-    expect(patched.recent).toContain("agent edited units.py");
+    expect(patched.recent).toContain("agent edited /w/units.py");
   });
 
   it("a failing test run is a failure moment", () => {
+    expect(codex([run("t", "pytest", 1, "2 failed")]).pending?.trigger).toBe("failure");
+  });
+
+  it("the request keeps its turn when the agent's first plan arrives in the same read", () => {
     const state = codex([
-      item({
-        type: "function_call",
-        name: "exec_command",
-        call_id: "t",
-        arguments: '{"cmd":"pytest"}',
-      }),
-      item({
-        type: "function_call_output",
-        call_id: "t",
-        output: "Process exited with code 1\n2 failed",
+      done({ type: "UserMessage", content: [{ type: "text", text: "Fix parse_quantity." }] }),
+      done({
+        type: "AgentMessage",
+        content: [
+          {
+            type: "Text",
+            text: "I'll check the parser's compatibility requirements and reproduce it.",
+          },
+        ],
       }),
     ]);
-    expect(state.pending?.trigger).toBe("failure");
+    expect(state.pending?.trigger).toBe("task");
   });
 });
 
@@ -272,6 +280,20 @@ describe("the note's source", () => {
     expect(bestSentence(readable(doc), "memory suffixes are 1024 powers")).toBe(
       "Exactly: memory K/M/G/T as 1024 powers, disk M/G/T as 1000 powers."
     );
+  });
+
+  it("quotes the line with the note's value, not the old or a rejected one", () => {
+    const chat = [
+      "MAX_ATTEMPTS = int(os.environ.get('RETRY_MAX_ATTEMPTS', 10)) # Current setting",
+      "+MAX_ATTEMPTS = int(os.environ.get('RETRY_MAX_ATTEMPTS', 5))",
+      "+MAX_ATTEMPTS = int(os.environ.get('RETRY_MAX_ATTEMPTS', 7))",
+    ].join("\n");
+    expect(
+      bestSentence(
+        chat,
+        "MAX_ATTEMPTS must be int(os.environ.get('RETRY_MAX_ATTEMPTS', 7)): 7 attempts, not 5 or 8."
+      )
+    ).toBe("+MAX_ATTEMPTS = int(os.environ.get('RETRY_MAX_ATTEMPTS', 7))");
   });
 
   it("renders the note, where to read it, and the quote", () => {

@@ -1174,7 +1174,8 @@ _ABSTAIN_ANSWER_RULES = """Answer the question from the memories given, and from
 - Write `check` first: hold each rule and value the memories state against what the context shows (its code, command or plan), then decide.
 - `applies` is false when the memories do not state what the question asks for: they only share its topic, or the true answer is no or nothing (nothing conflicts, no decision applies). Then leave `answer` empty.
 - Otherwise `applies` is true and `answer` answers directly, in the form the question asks for, copying exact values and literals verbatim.
-- No preamble, no reasoning, no follow-up questions: the reader acts on any text you write."""
+- No preamble, no reasoning, no follow-up questions: the reader acts on any text you write.
+- Never write memory, document or REF-ID identifiers ("chat:session-01", "git:ab12"): the reader cannot look them up, and the caller shows the sources itself."""
 
 
 def build_abstain_answer_system_prompt(
