@@ -1,8 +1,10 @@
 /**
  * The memory watcher: Hindsight beside the coding agent, speaking only when memory holds something
  * the agent must hear — a decision the request does not state (a heads-up at the start), or one the
- * agent's plan, command or edit goes against. It never delays the agent: the Claude Code hook that
- * drives it runs in the background, and its note reaches the agent as context on the next turn.
+ * agent's plan, command or edit goes against. It never delays the agent: the tool hook that drives
+ * it (Claude Code, Codex) runs the review in the background, and its note reaches the agent with a
+ * later tool result. Each harness reads its own transcript format into the same steps (stepsOf,
+ * codexStepsOf); everything after that is shared.
  *
  * Each moment is ONE reflect call with `abstain`: the server's decision model settles most moments
  * silently with no LLM call, and writes the note from the memory it picked otherwise. This module is
@@ -95,7 +97,7 @@ const FAILED = /\b\d+ failed\b|Traceback \(most recent call last\)|\bFAILED\b|\b
 
 const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n) : s);
 
-interface Step {
+export interface Step {
   kind: "ask" | "say" | "tool" | "result";
   text: string;
   id?: string;
@@ -147,6 +149,54 @@ export function stepsOf(line: Record<string, unknown>): Step[] {
     }
   }
   return out;
+}
+
+/** `["/bin/zsh", "-lc", script]` → script; Codex's `cmd` is already a string. */
+function codexCommand(args: Record<string, unknown>): string {
+  const c = args.cmd ?? args.command;
+  if (typeof c === "string") return c;
+  if (!Array.isArray(c)) return "";
+  return c.length === 3 && /^-[a-z]*c$/.test(String(c[1])) ? String(c[2]) : c.join(" ");
+}
+
+/** One Codex rollout line as the same steps: its prompt (the UserMessage event, never the startup
+ *  context Codex also sends as a user message), what it says, its shell commands and patches —
+ *  read as Claude's Bash and Edit, so one set of rules judges both — and what they return. */
+export function codexStepsOf(line: Record<string, unknown>): Step[] {
+  const p = (line.payload ?? {}) as Record<string, unknown>;
+  const item = (p.item ?? {}) as Record<string, unknown>;
+  const text = (content: unknown): string =>
+    (Array.isArray(content) ? (content as Record<string, unknown>[]) : [])
+      .map((c) => (typeof c.text === "string" ? c.text : ""))
+      .filter(Boolean)
+      .join("\n");
+  if (line.type === "event_msg" && p.type === "item_completed" && item.type === "UserMessage")
+    return [{ kind: "ask", text: clip(text(item.content), 4000) }];
+  if (line.type !== "response_item") return [];
+  const id = String(p.call_id ?? "");
+  if (p.type === "message" && p.role === "assistant") {
+    const said = text(p.content);
+    return said ? [{ kind: "say", text: clip(said, 3000) }] : [];
+  }
+  if (p.type === "function_call") {
+    let args: Record<string, unknown> = {};
+    try {
+      args = JSON.parse(String(p.arguments ?? "{}")) as Record<string, unknown>;
+    } catch {
+      /* unreadable arguments: the call still counts as a step */
+    }
+    const name = String(p.name ?? "");
+    return name === "exec_command" || name === "shell"
+      ? [{ kind: "tool", text: "", id, tool: "bash", input: { command: codexCommand(args) } }]
+      : [{ kind: "tool", text: "", id, tool: name, input: args }];
+  }
+  if (p.type === "custom_tool_call" && p.name === "apply_patch") {
+    const file = /^\*\*\* (?:Update|Add|Delete) File: (.+)$/m.exec(String(p.input ?? ""))?.[1];
+    return [{ kind: "tool", text: "", id, tool: "edit", input: { file_path: file ?? "" } }];
+  }
+  if (p.type === "function_call_output" || p.type === "custom_tool_call_output")
+    return [{ kind: "result", text: clip(String(p.output ?? ""), 3000), id }];
+  return [];
 }
 
 const isOwnNote = (text: string): boolean => text.includes(NOTE_LEAD.split(" (")[0]);

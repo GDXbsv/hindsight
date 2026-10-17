@@ -578,18 +578,21 @@ function resolveDefaultBankConfig(raw: RawConfig["defaultBankConfig"]): Record<s
 export type AutoInject = "reflect" | "pages" | "recall" | "none" | "watch";
 const AUTO_INJECT_MODES: readonly AutoInject[] = ["reflect", "pages", "recall", "none", "watch"];
 
+/** The harnesses whose PostToolUse hook runs the memory watcher (core/watch-entry.ts). */
+export const WATCH_HARNESSES: readonly string[] = ["claude-code", "codex"];
+
 /** `autoInject` wins; otherwise the deprecated `autoReflect: false` means "none". */
 function resolveAutoInject(raw: RawConfig): AutoInject {
   if (raw.autoReflect !== undefined) {
     const replacement = raw.autoReflect === false ? "none" : "reflect";
     log.warn("config", `autoReflect is deprecated — use autoInject: "${replacement}" instead`);
   }
-  // The watcher is a Claude Code hook. Elsewhere "watch" would inject nothing and watch nothing, so
-  // those harnesses keep the default instead of going memoryless without a word.
-  if (raw.autoInject === "watch" && raw.harness && raw.harness !== "claude-code") {
+  // The watcher needs a tool hook that hands context to the model. Elsewhere "watch" would inject
+  // nothing and watch nothing, so those harnesses keep the default instead of going memoryless.
+  if (raw.autoInject === "watch" && raw.harness && !WATCH_HARNESSES.includes(raw.harness)) {
     log.warn(
       "config",
-      `autoInject "watch" runs on Claude Code only; ${raw.harness} uses "reflect"`
+      `autoInject "watch" runs on ${WATCH_HARNESSES.join(" and ")} only; ${raw.harness} uses "reflect"`
     );
     return "reflect";
   }

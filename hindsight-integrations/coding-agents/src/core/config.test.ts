@@ -636,8 +636,11 @@ describe("observationScopes", () => {
 });
 
 describe("autoInject watch", () => {
-  it("is kept on Claude Code and falls back to reflect elsewhere", () => {
+  it("is kept on Claude Code and Codex and falls back to reflect elsewhere", () => {
     expect(resolveConfig({ autoInject: "watch", harness: "claude-code" }).autoInject).toBe("watch");
-    expect(resolveConfig({ autoInject: "watch", harness: "codex" }).autoInject).toBe("reflect");
+    expect(resolveConfig({ autoInject: "watch", harness: "codex" }).autoInject).toBe("watch");
+    expect(resolveConfig({ autoInject: "watch", harness: "cursor-cli" }).autoInject).toBe(
+      "reflect"
+    );
   });
 });

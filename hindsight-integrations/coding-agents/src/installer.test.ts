@@ -1319,11 +1319,17 @@ describe("codebuddy installer MCP file chain", () => {
 describe("codex installer", () => {
   const hooksPath = (ctx: InstallCtx) => join(ctx.home, ".codex", "hooks.json");
   const tomlPath = (ctx: InstallCtx) => join(ctx.home, ".codex", "config.toml");
-  it("install writes the 3 hook events into hooks.json", () => {
+  it("install writes the 3 hook events and the watcher's PostToolUse into hooks.json", () => {
     const ctx = makeCtx();
     expect(run(["install", "codex"], ctx)).toBe(0);
     const hooks = readJson(hooksPath(ctx)).hooks;
-    expect(Object.keys(hooks).sort()).toEqual(["SessionStart", "Stop", "UserPromptSubmit"]);
+    expect(Object.keys(hooks).sort()).toEqual([
+      "PostToolUse",
+      "SessionStart",
+      "Stop",
+      "UserPromptSubmit",
+    ]);
+    expect(hooks.PostToolUse[0].hooks[0].command).toContain("codex-watch-hook.js");
     expect(hooks.SessionStart[0].hooks[0].command).toContain("codex-sessionstart-hook.js");
     expect(hooks.UserPromptSubmit[0].hooks[0].command).toContain("codex-hook.js");
     expect(hooks.Stop[0].hooks[0].command).toContain("codex-stop-hook.js");

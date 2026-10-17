@@ -1,0 +1,124 @@
+/**
+ * The memory watcher's hook (`autoInject: "watch"`, see core/watch.ts and core/watch-hook.ts), for
+ * every harness with a PostToolUse hook that hands `additionalContext` to the model (Claude Code,
+ * Codex; WATCH_HARNESSES in core/config.ts). Each harness's entry names itself and how to read its
+ * transcript. A hook in two halves, so the agent never waits on memory:
+ *
+ *  - the hook itself (milliseconds): hand over a note an earlier review left, as `additionalContext`
+ *    next to this tool result, then start this step's review in a detached background process;
+ *  - the background process (`--work`): read the transcript's new steps, ask reflect, and stash the
+ *    note for the next tool call to hand over.
+ *
+ * Claude Code's own background hooks were tried and do not fit: an `async` hook's context arrives
+ * only with the user's next message (never mid-task in `claude -p`), and an `asyncRewake` one is
+ * shown to the agent as "PostToolUse hook blocking error" — the framing under which an agent read a
+ * real decision as an injection and refused it. A plain hook's `additionalContext` is the channel
+ * the sde-bench watcher measured.
+ */
+import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { deriveBankIdOrSkip } from "./bank";
+import { applyBankConfig, loadConfig } from "./config";
+import { DAEMON_WAIT_RETAIN_MS, ensureDaemon } from "./daemon";
+import { diag } from "./diag";
+import { HindsightClient } from "./hindsight";
+import { describeError } from "./log";
+import { stashPendingContext, takePendingContext } from "./session-cache";
+import { sessionDir, watchOnce, type StepsOf } from "./watch-hook";
+
+const EVENT_ENV = "HINDSIGHT_WATCH_EVENT";
+
+export interface WatchHarness {
+  harness: string;
+  /** The built entry file, which the hook starts again detached for the review. */
+  entry: string;
+  stepsOf: StepsOf;
+}
+
+interface WatchEvent {
+  session_id?: string;
+  transcript_path?: string;
+  cwd?: string;
+}
+
+/** Start this step's review without waiting for it: the review outlives the hook. */
+function startReview(h: WatchHarness, ev: WatchEvent): void {
+  try {
+    const self = join(dirname(fileURLToPath(import.meta.url)), h.entry);
+    const child = spawn(process.execPath, [self, "--work"], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+      env: { ...process.env, [EVENT_ENV]: JSON.stringify(ev) },
+    });
+    child.on("error", () => {});
+    child.unref();
+  } catch {
+    /* best-effort: a failed spawn must not touch the agent */
+  }
+}
+
+/** The background half: judge what the session did, and leave a note for the next tool call. */
+async function review(h: WatchHarness, ev: WatchEvent): Promise<void> {
+  if (!ev.transcript_path || !ev.session_id) return;
+  const cwd = ev.cwd ?? process.cwd();
+  const base = loadConfig({ harness: h.harness });
+  const derived = deriveBankIdOrSkip(base, cwd, h.harness);
+  if (derived === null) return;
+  const { cfg, bankId } = applyBankConfig(base, derived, cwd);
+  if (cfg.disabled) return;
+  await ensureDaemon(cfg, h.harness, { waitMs: DAEMON_WAIT_RETAIN_MS });
+  const note = await watchOnce({
+    harness: h.harness,
+    stepsOf: h.stepsOf,
+    transcriptPath: ev.transcript_path,
+    cwd,
+    dir: sessionDir(join(tmpdir(), "hindsight-watch"), ev.session_id),
+    client: new HindsightClient({
+      apiUrl: cfg.apiUrl,
+      apiToken: cfg.apiToken,
+      bank: bankId,
+      observationScopes: cfg.observationScopes,
+    }),
+  });
+  // The pending-note stash, apart from any context the session's other hooks defer.
+  if (note) stashPendingContext(`${h.harness}-watch`, ev.session_id, note);
+}
+
+async function main(h: WatchHarness): Promise<string | null> {
+  // Grok Build runs Claude Code's hooks too (its compatibility layer): not this session's agent.
+  if (process.env.HINDSIGHT_DISABLE_HOOKS || process.env.GROK_HOOK_EVENT) return null;
+  if (process.argv[2] === "--work") {
+    await review(h, JSON.parse(process.env[EVENT_ENV] ?? "{}") as WatchEvent);
+    return null;
+  }
+  const ev = JSON.parse(readFileSync(0, "utf8")) as WatchEvent;
+  const cfg = loadConfig({ harness: h.harness });
+  if (cfg.disabled || cfg.autoInject !== "watch" || !ev.session_id) return null;
+  const note = takePendingContext(`${h.harness}-watch`, ev.session_id);
+  if (note) diag(h.harness, "watch_delivered", { chars: note.length });
+  startReview(h, { session_id: ev.session_id, transcript_path: ev.transcript_path, cwd: ev.cwd });
+  return note ?? null;
+}
+
+export function runWatchHook(h: WatchHarness): void {
+  main(h).then(
+    (note) => {
+      if (note)
+        process.stdout.write(
+          JSON.stringify({
+            hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: note },
+          })
+        );
+      process.exit(0);
+    },
+    (e) => {
+      // A watcher failure must never reach the agent: stay silent, leave a trail.
+      diag(h.harness, "watch_error", { error: describeError(e) });
+      process.exit(0);
+    }
+  );
+}

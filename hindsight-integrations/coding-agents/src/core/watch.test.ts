@@ -4,6 +4,7 @@ import {
   NOTE_LEAD,
   acceptNote,
   bestSentence,
+  codexStepsOf,
   emptyWatchState,
   queryFromDiff,
   readStep,
@@ -115,6 +116,73 @@ describe("reading the agent's transcript", () => {
   it("subagent and meta lines are not the agent's", () => {
     expect(stepsOf({ ...prompt("do a thing"), isSidechain: true })).toEqual([]);
     expect(stepsOf({ ...prompt("do a thing"), isMeta: true })).toEqual([]);
+  });
+});
+
+describe("reading a Codex rollout", () => {
+  const item = (payload: Record<string, unknown>) => ({ type: "response_item", payload });
+  const codex = (lines: Record<string, unknown>[]) => {
+    const state = emptyWatchState();
+    for (const line of lines) for (const step of codexStepsOf(line)) readStep(state, step);
+    return state;
+  };
+
+  it("the prompt is the UserMessage event, not the startup context sent as a user message", () => {
+    const state = codex([
+      item({
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "# AGENTS.md" }],
+      }),
+      {
+        type: "event_msg",
+        payload: {
+          type: "item_completed",
+          item: { type: "UserMessage", content: [{ type: "text", text: "Fix parse_quantity." }] },
+        },
+      },
+    ]);
+    expect(state.pending).toEqual({ trigger: "task", text: "Fix parse_quantity." });
+  });
+
+  it("a shell command is read as Bash, a patch as an edit once its output is back", () => {
+    const call = (id: string, cmd: string) =>
+      item({
+        type: "function_call",
+        name: "exec_command",
+        call_id: id,
+        arguments: JSON.stringify({ cmd }),
+      });
+    expect(codex([call("c1", "rg parse_quantity")]).pending).toBeNull();
+    expect(codex([call("c1", "rm -rf build")]).pending?.trigger).toBe("command");
+    const patched = codex([
+      item({
+        type: "custom_tool_call",
+        name: "apply_patch",
+        call_id: "p1",
+        input: "*** Begin Patch\n*** Update File: units.py\n-K = 1000\n+K = 1024\n*** End Patch",
+      }),
+      item({ type: "custom_tool_call_output", call_id: "p1", output: "Success." }),
+    ]);
+    expect(patched.pending?.trigger).toBe("edit");
+    expect(patched.recent).toContain("agent edited units.py");
+  });
+
+  it("a failing test run is a failure moment", () => {
+    const state = codex([
+      item({
+        type: "function_call",
+        name: "exec_command",
+        call_id: "t",
+        arguments: '{"cmd":"pytest"}',
+      }),
+      item({
+        type: "function_call_output",
+        call_id: "t",
+        output: "Process exited with code 1\n2 failed",
+      }),
+    ]);
+    expect(state.pending?.trigger).toBe("failure");
   });
 });
 

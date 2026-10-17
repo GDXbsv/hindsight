@@ -2,8 +2,11 @@ import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { watchOnce, type WatchClient } from "./watch-hook";
-import { CONFLICT_Q, HEADSUP_Q, NOTE_LEAD } from "./watch";
+import { watchOnce as watchWith, type WatchClient } from "./watch-hook";
+import { CONFLICT_Q, HEADSUP_Q, NOTE_LEAD, stepsOf } from "./watch";
+
+const watchOnce = (a: Omit<Parameters<typeof watchWith>[0], "harness" | "stepsOf">) =>
+  watchWith({ ...a, harness: "claude-code", stepsOf });
 
 const line = (o: unknown) => `${JSON.stringify(o)}\n`;
 const prompt = (text: string) => line({ type: "user", message: { role: "user", content: text } });

@@ -294,7 +294,7 @@ export const HOOK_HARNESSES: Record<HookHarnessName, HookHarnessSpec> = {
     },
     // The memory watcher (autoInject: "watch"; exits at once otherwise). Every tool, not only edits:
     // a heads-up must reach the agent on its first read, before it has changed anything. The hook
-    // returns in milliseconds; the review runs detached (see claude-watch-hook.ts).
+    // returns in milliseconds; the review runs detached (see core/watch-entry.ts).
     additionalHooks: [{ event: "PostToolUse", entry: "claude-watch-hook.js", timeout: 10 }],
     sessionStart: { ...standardSessionStart("claude-code"), accept: notGrokHosted },
     prompt: { ...claudePrompt, accept: notGrokHosted },
@@ -316,6 +316,8 @@ export const HOOK_HARNESSES: Record<HookHarnessName, HookHarnessSpec> = {
       prompt: { event: "UserPromptSubmit", entry: "codex-hook.js", timeout: 30 },
       stop: { event: "Stop", entry: "codex-stop-hook.js", timeout: 60 },
     },
+    // The memory watcher, as on Claude Code: Codex's PostToolUse hook speaks Claude's protocol.
+    additionalHooks: [{ event: "PostToolUse", entry: "codex-watch-hook.js", timeout: 10 }],
     sessionStart: standardSessionStart("codex"),
     prompt: codexPrompt,
     retain: {

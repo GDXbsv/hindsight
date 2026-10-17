@@ -1,6 +1,6 @@
 /**
- * One run of the Claude Code memory watcher hook (see claude-watch-hook.ts and core/watch.ts):
- * read the transcript's new steps, judge the pending moment with one reflect, return the note.
+ * One run of the memory watcher hook (see core/watch-entry.ts and core/watch.ts): read the
+ * transcript's new steps, judge the pending moment with one reflect, return the note.
  */
 import {
   closeSync,
@@ -27,12 +27,11 @@ import {
   searchQueries,
   shouldAsk,
   situation,
-  stepsOf,
   type Moment,
+  type Step,
   type WatchState,
 } from "./watch";
 
-const HARNESS = "claude-code";
 /** A crashed or killed holder leaves its lock behind; past this age anyone may take it. */
 const STALE_LOCK_MS = 5 * 60_000;
 /** Moments one holder judges before leaving, so a busy session still gets its notes delivered. */
@@ -75,8 +74,11 @@ function loadState(file: string): WatchState {
   }
 }
 
+/** One transcript line as the watcher's steps: each harness writes its own transcript format. */
+export type StepsOf = (line: Record<string, unknown>) => Step[];
+
 /** Read the transcript's new complete lines into the state; a half-written last line waits. */
-function follow(transcript: string, state: WatchState): void {
+function follow(transcript: string, state: WatchState, stepsOf: StepsOf): void {
   let buf: Buffer;
   try {
     buf = readFileSync(transcript);
@@ -164,13 +166,15 @@ async function sourceOf(
  * holds the session's lock; overlapping runs return null at once (the holder reads their steps).
  */
 export async function watchOnce(args: {
+  harness: string;
+  stepsOf: StepsOf;
   transcriptPath: string;
   cwd: string;
   dir: string;
   client: WatchClient;
   diff?: (cwd: string) => string;
 }): Promise<string | null> {
-  const { transcriptPath, cwd, dir, client } = args;
+  const { harness, stepsOf, transcriptPath, cwd, dir, client } = args;
   const diffOf = args.diff ?? sourceDiff;
   const lock = join(dir, "lock");
   const stateFile = join(dir, "state.json");
@@ -178,7 +182,7 @@ export async function watchOnce(args: {
   try {
     const state = loadState(stateFile);
     for (let round = 0; round < MAX_ROUNDS; round++) {
-      follow(transcriptPath, state);
+      follow(transcriptPath, state, stepsOf);
       const pending = state.pending;
       state.pending = null;
       if (!pending) break;
@@ -194,11 +198,11 @@ export async function watchOnce(args: {
       if (!answer.supported) {
         // An older server ignores `abstain` and answers every moment: listening would be noise.
         state.unsupported = true;
-        diag(HARNESS, "watch_unsupported", {});
+        diag(harness, "watch_unsupported", {});
         break;
       }
       const spoke = acceptNote(state, m, answer.text, answer.memoryIds);
-      diag(HARNESS, "watch", { trigger: m.trigger, spoke, ms: Date.now() - t0 });
+      diag(harness, "watch", { trigger: m.trigger, spoke, ms: Date.now() - t0 });
       if (!spoke) continue;
       const src = answer.memoryIds[0]
         ? await sourceOf(client, answer.memoryIds[0], answer.text)
