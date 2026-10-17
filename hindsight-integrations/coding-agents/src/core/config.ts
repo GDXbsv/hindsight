@@ -124,13 +124,14 @@ export interface RawConfig {
    *  timeout. The automatic session-start reflect is NOT affected — it always uses "low" to fit
    *  its hook window. */
   reflectBudget?: "low" | "mid" | "high";
-  /** What to inject on the session's first prompt (default "reflect"):
+  /** What to inject on the session's first prompt (default "watch" on Claude Code and Codex,
+   *  "reflect" elsewhere):
    *    "reflect" — one low-budget reflect synthesis (falls back to pages, then recall, on timeout/5xx)
    *    "pages"   — the knowledge pages matching the prompt by search (retrieval only, no LLM)
    *    "recall"  — the bank's memories recalled for the prompt (`recallOptions`; no LLM)
    *    "none"    — nothing; the tool guide routes new goals through pages before optional reflection
    *    "watch"   — nothing up front: a memory watcher follows the session in the background and
-   *                speaks only when memory holds what the agent must hear (Claude Code; see core/watch.ts) */
+   *                speaks only when memory holds what the agent must hear (Claude Code, Codex; core/watch.ts) */
   autoInject?: AutoInject;
   /** @deprecated Use `autoInject`. Still honoured: false = `autoInject: "none"`, true = "reflect";
    *  ignored when `autoInject` is set. Setting it logs a deprecation warning. */
@@ -581,7 +582,7 @@ const AUTO_INJECT_MODES: readonly AutoInject[] = ["reflect", "pages", "recall", 
 /** The harnesses whose PostToolUse hook runs the memory watcher (core/watch-entry.ts). */
 export const WATCH_HARNESSES: readonly string[] = ["claude-code", "codex"];
 
-/** `autoInject` wins; otherwise the deprecated `autoReflect: false` means "none". */
+/** `autoInject` wins; then the deprecated `autoReflect`; then "watch" where it runs, else "reflect". */
 function resolveAutoInject(raw: RawConfig): AutoInject {
   if (raw.autoReflect !== undefined) {
     const replacement = raw.autoReflect === false ? "none" : "reflect";
@@ -597,7 +598,10 @@ function resolveAutoInject(raw: RawConfig): AutoInject {
     return "reflect";
   }
   if (AUTO_INJECT_MODES.includes(raw.autoInject as AutoInject)) return raw.autoInject as AutoInject;
-  return raw.autoReflect === false ? "none" : "reflect";
+  if (raw.autoReflect !== undefined) return raw.autoReflect === false ? "none" : "reflect";
+  // Where the watcher runs it is the default: it replaced the first-prompt reflect, which always
+  // injected a synthesis; the watcher speaks only when memory records a decision the work touches.
+  return raw.harness && WATCH_HARNESSES.includes(raw.harness) ? "watch" : "reflect";
 }
 
 export function resolveConfig(raw: RawConfig = {}): Config {

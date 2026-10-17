@@ -643,4 +643,14 @@ describe("autoInject watch", () => {
       "reflect"
     );
   });
+
+  it("is the default where it runs; elsewhere, and with the legacy autoReflect, reflect stays", () => {
+    expect(resolveConfig({ harness: "claude-code" }).autoInject).toBe("watch");
+    expect(resolveConfig({ harness: "codex" }).autoInject).toBe("watch");
+    expect(resolveConfig({ harness: "cursor-cli" }).autoInject).toBe("reflect");
+    expect(resolveConfig({ harness: "claude-code", autoReflect: true }).autoInject).toBe("reflect");
+    expect(resolveConfig({ harness: "claude-code", autoInject: "reflect" }).autoInject).toBe(
+      "reflect"
+    );
+  });
 });
