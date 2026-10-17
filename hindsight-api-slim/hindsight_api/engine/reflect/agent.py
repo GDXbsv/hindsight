@@ -172,8 +172,10 @@ _PICK_FLOOR = 0.1
 # Below this "none" the decision model has settled that the picked memories answer, and the LLM
 # only writes the answer; between it and _ABSTAIN_AT the LLM decides. Left to decide everywhere, it
 # turned down a heads-up the decision model was sure of (none 0.02) on 1 of 3 live sde-bench dedupe
-# runs, which then needed a correction; the client-side watcher's writer had no veto below 0.3.
-_ANSWER_AT = 0.3
+# runs, which then needed a correction. The bar was 0.3 (the client-side watcher's writer had no veto
+# below it) until the answer wrote its check first: forced at none 0.25, that check found nothing
+# wrong and the "answer" became "Nothing conflicts: ..." as a note. Heads-ups pick at none <= 0.03.
+_ANSWER_AT = 0.1
 # How much of the picked memories' source an abstain answer reads: the facts expanded to their
 # chunks, deduplicated, cut at the same 8000 characters the client-side watcher's writer read.
 _ANSWER_SOURCE_FACTS = 12

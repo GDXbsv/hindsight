@@ -136,8 +136,17 @@ class LengthRewrite(BaseModel):
 
 
 class AbstainAnswer(BaseModel):
-    """An abstain reflect's answer, written from the memories the decision model picked."""
+    """An abstain reflect's answer, written from the memories the decision model picked.
 
+    ``check`` comes first so the model compares before it decides: with ``applies`` as the first field
+    it committed to "nothing conflicts" before reading the code against the rule, and missed a change
+    that broke a recorded rule (an exact-name check where the decision said "ends with").
+    """
+
+    check: str = Field(
+        default="",
+        description="One or two short sentences: what the memories state, held against the context. Never shown.",
+    )
     applies: bool = Field(
         description="True only if the memories state what the question asks for; false when the true answer is no or nothing."
     )
