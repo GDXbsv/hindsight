@@ -451,17 +451,37 @@ up, and lets it search several angles (a request's sentences that name code, its
 paragraphs, a diff described in words). Applies when reflect runs with a decision
 model; otherwise the agent writes its own searches.
 
+### Python
+
 ```python
+# Ask a question that may need no answer: an empty text means memory has nothing to say.
 response = client.reflect(
     bank_id="my-bank",
-    query="Does my change go against a recorded project decision? If so, say which, briefly.",
-    context="I changed parse_quantity to read every suffix as a power of 1000.",
+    query="Does my change go against a recorded decision about Alice's role? If so, say which, briefly.",
+    context="I am updating the team page to list Alice as a junior engineer.",
     abstain=True,
-    search_queries=["parse_quantity unit suffixes", "memory and disk quotas"],
-    fact_types=["observation"],
+    search_queries=["Alice role", "Alice promotion"],
 )
 if response.abstained:
-    pass  # nothing to say
+    print("nothing to say")
+else:
+    print(response.text)
+```
+
+### Node.js
+
+```javascript
+// Ask a question that may need no answer: an empty text means memory has nothing to say.
+const watchResponse = await client.reflect(
+    'my-bank',
+    "Does my change go against a recorded decision about Alice's role? If so, say which, briefly.",
+    {
+        context: 'I am updating the team page to list Alice as a junior engineer.',
+        abstain: true,
+        searchQueries: ['Alice role', 'Alice promotion'],
+    }
+);
+console.log(watchResponse.abstained ? 'nothing to say' : watchResponse.text);
 ```
 
 ---

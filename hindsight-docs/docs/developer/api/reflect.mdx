@@ -275,18 +275,14 @@ up, and lets it search several angles (a request's sentences that name code, its
 paragraphs, a diff described in words). Applies when reflect runs with a decision
 model; otherwise the agent writes its own searches.
 
-```python
-response = client.reflect(
-    bank_id="my-bank",
-    query="Does my change go against a recorded project decision? If so, say which, briefly.",
-    context="I changed parse_quantity to read every suffix as a power of 1000.",
-    abstain=True,
-    search_queries=["parse_quantity unit suffixes", "memory and disk quotas"],
-    fact_types=["observation"],
-)
-if response.abstained:
-    pass  # nothing to say
-```
+<Tabs>
+<TabItem value="python" label="Python">
+<CodeSnippet code={reflectPy} section="reflect-abstain" language="python" />
+</TabItem>
+<TabItem value="node" label="Node.js">
+<CodeSnippet code={reflectMjs} section="reflect-abstain" language="javascript" />
+</TabItem>
+</Tabs>
 
 ---
 

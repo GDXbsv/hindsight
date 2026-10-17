@@ -69,29 +69,34 @@ async def test_nothing_to_say_costs_no_llm_call(typesafe_client, llm, stubs, dec
     searched = {call.input["query"] for call in response.trace.tool_calls}
     assert searched == set(SEARCHES), "the caller's searches ran as given"
     assert _llm_turns(llm, "reflect_round_query") == 0, "no rewrite: the caller named its searches"
-    assert _llm_turns(llm, "reflect") == 0, "no answer turn"
+    assert _llm_turns(llm, "reflect") == 0 and _llm_turns(llm, "reflect_abstain_answer") == 0, "no answer call"
 
 
 async def test_something_to_say_is_written_from_what_was_picked(typesafe_client, llm, stubs, decision_bank):
     stubs.rerank.cut_level = 5
     stubs.rerank.pick_none = 0.1
-    llm.on_step("reflect", tool="done").returns_tool_call("done", answer=NOTE, answer_found=True)
+    llm.on_step("reflect_abstain_answer").returns_text(NOTE)
 
     response = await typesafe_client.areflect(
-        bank_id=decision_bank, query=QUESTION, abstain=True, search_queries=SEARCHES, include_facts=True
+        bank_id=decision_bank,
+        query=QUESTION,
+        context="I changed parse_quantity to read K as 1000.",
+        abstain=True,
+        search_queries=SEARCHES,
+        include_facts=True,
     )
 
     assert not response.abstained and response.text == NOTE
     assert response.based_on and response.based_on.memories, "the note carries the memory it came from"
+    (answer_call,) = [call for call in llm.calls if anchor_for("reflect_abstain_answer") in call.all_text]
+    assert "I changed parse_quantity to read K as 1000." in answer_call.all_text, "the context reaches the answer"
 
 
 async def test_the_llm_finding_nothing_applies_is_silence_not_text(typesafe_client, llm, stubs, decision_bank):
-    """Unsure, the decision model leaves it to the LLM; its "nothing applies" comes back empty."""
+    """Unsure, the decision model leaves it to the LLM; its NONE comes back empty, not as text."""
     stubs.rerank.cut_level = 5
     stubs.rerank.pick_none = 0.6
-    llm.on_step("reflect", tool="done").returns_tool_call(
-        "done", answer="Nothing conflicts: your change follows the decision.", answer_found=False
-    )
+    llm.on_step("reflect_abstain_answer").returns_text("NONE")
 
     response = await typesafe_client.areflect(
         bank_id=decision_bank, query=QUESTION, abstain=True, search_queries=SEARCHES

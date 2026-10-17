@@ -634,3 +634,10 @@ describe("observationScopes", () => {
     expect(readEnvConfig({}).observationScopes).toBeUndefined();
   });
 });
+
+describe("autoInject watch", () => {
+  it("is kept on Claude Code and falls back to reflect elsewhere", () => {
+    expect(resolveConfig({ autoInject: "watch", harness: "claude-code" }).autoInject).toBe("watch");
+    expect(resolveConfig({ autoInject: "watch", harness: "codex" }).autoInject).toBe("reflect");
+  });
+});

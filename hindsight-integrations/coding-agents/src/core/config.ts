@@ -584,6 +584,15 @@ function resolveAutoInject(raw: RawConfig): AutoInject {
     const replacement = raw.autoReflect === false ? "none" : "reflect";
     log.warn("config", `autoReflect is deprecated — use autoInject: "${replacement}" instead`);
   }
+  // The watcher is a Claude Code hook. Elsewhere "watch" would inject nothing and watch nothing, so
+  // those harnesses keep the default instead of going memoryless without a word.
+  if (raw.autoInject === "watch" && raw.harness && raw.harness !== "claude-code") {
+    log.warn(
+      "config",
+      `autoInject "watch" runs on Claude Code only; ${raw.harness} uses "reflect"`
+    );
+    return "reflect";
+  }
   if (AUTO_INJECT_MODES.includes(raw.autoInject as AutoInject)) return raw.autoInject as AutoInject;
   return raw.autoReflect === false ? "none" : "reflect";
 }
