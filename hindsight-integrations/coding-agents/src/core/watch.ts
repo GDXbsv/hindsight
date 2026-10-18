@@ -80,15 +80,14 @@ export const HEADSUP_Q =
   "itself does not state? Only what someone decided (a chosen value or rule, an exception, a rejected " +
   "option), not what the code already does: I can read that myself. Tell me in at most 70 words, as " +
   "'Before you change <the code>: <every such rule, " +
-  "in its final form, in the words the memory states it>', copying " +
-  "exact literals verbatim. If memory records no such decision about this " +
+  "in its final form, in the words the memory states it; each rule a fix could get wrong>', copying " +
+  "exact literals verbatim, no advice beyond the rules. If memory records no such decision about this " +
   "code, reply with nothing.";
 
 export const CONFLICT_Q =
   "Does what I am doing right now (my plan, command or code change) contradict a project decision recorded " +
   "in memory, miss one, or repeat an option recorded as rejected? If so, tell me in at most 50 words the " +
-  "recorded value or rule (exact literals verbatim) and what in my work disagrees; if I repeat a rejected " +
-  "option, also why it was rejected, in at most 8 words. How I run, install or " +
+  "recorded value or rule (exact literals verbatim) and what in my work disagrees. How I run, install or " +
   "check tests is never a conflict. If nothing conflicts, reply with nothing.";
 
 const EDIT_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit"]);
