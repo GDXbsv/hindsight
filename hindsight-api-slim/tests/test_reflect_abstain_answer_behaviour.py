@@ -36,11 +36,11 @@ _MEMORY = [
 ]
 
 
-async def _answer(question: str, context: str) -> str:
+async def _answer(question: str, context: str, memory: list[str] = _MEMORY) -> str:
     result = await LLMConfig.from_env().call(
         messages=[
             {"role": "system", "content": build_abstain_answer_system_prompt(None, None, None)},
-            {"role": "user", "content": build_abstain_answer_prompt(question, context, _MEMORY, None)},
+            {"role": "user", "content": build_abstain_answer_prompt(question, context, memory, None)},
         ],
         scope="reflect",
         temperature=0.0,
@@ -79,8 +79,8 @@ async def test_a_change_that_follows_the_memory_does_not_apply():
         _CONFLICT,
         "MY REQUEST:\nFix parse_quantity so pods get the memory they ask for.\n\n"
         "WHAT I JUST DID (edit):\n"
-        '+_MEMORY_UNITS = {"K": 1024, "M": 1024 ** 2, "G": 1024 ** 3}\n'
-        '+_DISK_UNITS = {"M": 1000 ** 2, "G": 1000 ** 3}  # no K: rejected for disk',
+        '+_MEMORY_UNITS = {"K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}\n'
+        '+_DISK_UNITS = {"M": 1000 ** 2, "G": 1000 ** 3, "T": 1000 ** 4}  # no K: rejected for disk',
     )
     assert _is_none(answer), f"expected NONE for a change that follows the memory, got: {answer!r}"
 
@@ -96,4 +96,30 @@ async def test_a_heads_up_states_the_rule_with_its_literals():
             "are decimal (1000 powers), and that 'K' is rejected for disk. It gives the literal values."
         ),
         context="A heads-up for a request about parse_quantity, from one recorded decision.",
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_heads_up_follows_the_source_where_the_summary_is_stale():
+    # Consolidation can merge an old and a new decision into one summary that keeps the old one; the source
+    # text the memory carries says what was finally decided, so the note must follow it.
+    memory = [
+        "- [2026-10-16] orderflow's advance() enforces a strictly linear lifecycle: pending -> paid -> shipped -> "
+        "returned -> refunded; branching transitions were rejected.",
+        "  - source: user: First idea: keep it linear, pending, paid, shipped, returned, refunded.\n"
+        "assistant: Done, linear.\n"
+        "user: No, scrap linear, it blocks holds. Recap of the pinned lifecycle: pending -> paid/on_hold/cancelled; "
+        "paid -> shipped/on_hold only; on_hold -> pending/cancelled; shipped -> returned; returned -> refunded; "
+        "cancelled and refunded are terminal.",
+    ]
+    answer = await _answer(_HEADSUP, "MY REQUEST:\nFix advance() so held orders can be released.", memory)
+    assert not _is_none(answer), answer
+    await assert_meets_criteria(
+        response=answer,
+        criteria=(
+            "The response gives the branching lifecycle from the user's final recap (for example pending can go to "
+            "on_hold or cancelled, and on_hold back to pending). It does not say the lifecycle is strictly linear or "
+            "that branching was rejected."
+        ),
+        context="The memory's summary kept a superseded linear rule; its source ends with the final branching recap.",
     )
