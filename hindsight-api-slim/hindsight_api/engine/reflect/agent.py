@@ -29,6 +29,7 @@ from .models import (
     LengthRewrite,
     LLMCall,
     ReflectAgentResult,
+    SettledAbstainAnswer,
     StructuredOutputResult,
     TokenUsageSummary,
     ToolCall,
@@ -1159,14 +1160,19 @@ async def _run_reflect_agent_inner(
                 memories.append(f"\n## Source text of these memories\n{source}")
         # Structured, not a sentinel: asked to reply NONE when nothing applies, flash still wrote
         # "Nothing conflicts." now and then, and the watcher delivered it as a note.
+        # A settled pick writes the answer alone: its check and verdict were never read, and writing
+        # them first (about a third of the output) delayed the heads-up the watcher is waiting on.
         reply = _abstain_answer_from(
             await _tracked_llm_call(
                 build_abstain_answer_prompt(query, context, memories, llm_output_language, settled=settled),
                 "abstain_answer",
-                build_abstain_answer_system_prompt(bank_profile.get("mission"), llm_output_language, directives),
+                build_abstain_answer_system_prompt(
+                    bank_profile.get("mission"), llm_output_language, directives, settled=settled
+                ),
                 synthesis_max_completion_tokens,
-                response_format=AbstainAnswer,
-            )
+                response_format=SettledAbstainAnswer if settled else AbstainAnswer,
+            ),
+            settled=settled,
         )
         answer = reply.answer.strip()
         if (not reply.applies and not settled) or answer.strip("\"'`.*").upper() in ("", _NOTHING_TO_SEARCH):
@@ -2683,17 +2689,26 @@ def _decode_json_argument(raw: str, finish_reason: str | None, field: str) -> An
         ) from exc
 
 
-def _abstain_answer_from(raw: Any) -> AbstainAnswer:
-    """The structured abstain answer; an unreadable reply is silence, never a guessed note."""
+def _abstain_answer_from(raw: Any, *, settled: bool = False) -> AbstainAnswer:
+    """The structured abstain answer; an unreadable reply is silence, never a guessed note.
+
+    ``settled``: the reply is a ``SettledAbstainAnswer`` (the answer alone), read as one that applies.
+    """
+    model: type[BaseModel] = SettledAbstainAnswer if settled else AbstainAnswer
     try:
-        if isinstance(raw, AbstainAnswer):
-            return raw
         if isinstance(raw, str):
-            return AbstainAnswer.model_validate_json(raw)
-        return AbstainAnswer.model_validate(raw)
+            parsed = model.model_validate_json(raw)
+        elif isinstance(raw, BaseModel):
+            parsed = model.model_validate(raw.model_dump())
+        else:
+            parsed = model.model_validate(raw)
     except ValueError:
         logger.warning(f"Abstain answer did not parse, treating it as nothing to say: {str(raw)[:200]!r}")
         return AbstainAnswer(applies=False)
+    if isinstance(parsed, SettledAbstainAnswer):
+        return AbstainAnswer(applies=True, answer=parsed.answer)
+    assert isinstance(parsed, AbstainAnswer)
+    return parsed
 
 
 def _says_nothing(args: dict[str, Any]) -> bool:

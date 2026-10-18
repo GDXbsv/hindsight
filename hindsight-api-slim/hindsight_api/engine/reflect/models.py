@@ -153,6 +153,13 @@ class AbstainAnswer(BaseModel):
     answer: str = Field(default="", description="The answer, when it applies; empty otherwise.")
 
 
+class SettledAbstainAnswer(BaseModel):
+    """The answer alone, for a pick the decision model was sure of (``settled``): its ``check`` and
+    ``applies`` are not read there, and writing them first delayed the watcher's heads-up."""
+
+    answer: str = Field(description="The answer.")
+
+
 class ReflectAgentResult(BaseModel):
     """Result from the reflect agent."""
 
