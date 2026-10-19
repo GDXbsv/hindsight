@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deriveBankIdOrSkip } from "./bank";
-import { applyBankConfig, loadConfig } from "./config";
+import { applyBankConfig, loadConfig, type Config } from "./config";
 import { DAEMON_WAIT_RETAIN_MS, ensureDaemon } from "./daemon";
 import { diag } from "./diag";
 import { HindsightClient } from "./hindsight";
@@ -61,15 +61,24 @@ function startReview(h: WatchHarness, ev: WatchEvent): void {
   }
 }
 
+/** The config this repo's session runs with, or null when it does not watch: the per-bank and
+ *  per-path overrides apply, as in session start and the prompt hook, so a repo set to "reflect"
+ *  (or outside `optInOnly`) gets neither the notes nor a detached review per tool call. */
+export function watchConfig(h: WatchHarness, cwd: string): { cfg: Config; bankId: string } | null {
+  const base = loadConfig({ harness: h.harness });
+  const derived = deriveBankIdOrSkip(base, cwd, h.harness);
+  if (derived === null) return null;
+  const resolved = applyBankConfig(base, derived, cwd);
+  return resolved.cfg.disabled || resolved.cfg.autoInject !== "watch" ? null : resolved;
+}
+
 /** The background half: judge what the session did, and leave a note for the next tool call. */
 async function review(h: WatchHarness, ev: WatchEvent): Promise<void> {
   if (!ev.transcript_path || !ev.session_id) return;
   const cwd = ev.cwd ?? process.cwd();
-  const base = loadConfig({ harness: h.harness });
-  const derived = deriveBankIdOrSkip(base, cwd, h.harness);
-  if (derived === null) return;
-  const { cfg, bankId } = applyBankConfig(base, derived, cwd);
-  if (cfg.disabled) return;
+  const resolved = watchConfig(h, cwd);
+  if (!resolved) return;
+  const { cfg, bankId } = resolved;
   await ensureDaemon(cfg, h.harness, { waitMs: DAEMON_WAIT_RETAIN_MS });
   const note = await watchOnce({
     harness: h.harness,
@@ -96,8 +105,7 @@ async function main(h: WatchHarness): Promise<string | null> {
     return null;
   }
   const ev = JSON.parse(readFileSync(0, "utf8")) as WatchEvent;
-  const cfg = loadConfig({ harness: h.harness });
-  if (cfg.disabled || cfg.autoInject !== "watch" || !ev.session_id) return null;
+  if (!ev.session_id || !watchConfig(h, ev.cwd ?? process.cwd())) return null;
   const note = takePendingContext(`${h.harness}-watch`, ev.session_id);
   if (note) diag(h.harness, "watch_delivered", { chars: note.length });
   startReview(h, { session_id: ev.session_id, transcript_path: ev.transcript_path, cwd: ev.cwd });

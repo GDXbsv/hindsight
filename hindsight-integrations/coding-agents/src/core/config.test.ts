@@ -294,6 +294,16 @@ describe("defaultBankConfig (#4725)", () => {
 });
 
 describe("banks.<bankId> overrides (per-repo opt-in/out, applied AFTER bank resolution)", () => {
+  it("an override's autoInject watch falls back to reflect where the watcher does not run", () => {
+    const banks = { b1: { autoInject: "watch" as const } };
+    expect(
+      applyBankConfig(resolveConfig({ harness: "cursor-cli", banks }), "b1").cfg.autoInject
+    ).toBe("reflect");
+    expect(
+      applyBankConfig(resolveConfig({ harness: "claude-code", banks }), "b1").cfg.autoInject
+    ).toBe("watch");
+  });
+
   it("overrides behavioral fields for the matching bank only; others untouched", () => {
     const cfg = resolveConfig({
       gitIngest: "message",

@@ -953,7 +953,9 @@ function overrideFields(section: object): Record<string, unknown> {
 /** Resolve just the fields present in `patch`, defaulting against the CURRENT cfg (not the global
  *  defaults) so an override only changes what it names. */
 function resolvePartial(cfg: Config, patch: RawConfig): Partial<Config> {
-  const full = resolveConfig(patch);
+  // Resolved for the session's harness, so a harness-bound default or fallback (autoInject "watch"
+  // only where the watcher runs) holds in a per-bank or per-path override too.
+  const full = resolveConfig({ ...patch, harness: patch.harness ?? cfg.harness });
   const out: Partial<Config> = {};
   for (const key of Object.keys(patch) as (keyof RawConfig)[]) {
     if (key in full)

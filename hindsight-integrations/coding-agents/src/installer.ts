@@ -224,15 +224,8 @@ function setOrDelete(obj: Record<string, any>, key: string, arr: any[]): void {
   else delete obj[key];
 }
 
-const cmdHook = (dist: string, file: string, timeout: number, async?: boolean) => ({
-  hooks: [
-    {
-      type: "command",
-      command: `node "${join(dist, file)}"`,
-      timeout,
-      ...(async ? { async: true } : {}),
-    },
-  ],
+const cmdHook = (dist: string, file: string, timeout: number) => ({
+  hooks: [{ type: "command", command: `node "${join(dist, file)}"`, timeout }],
 });
 
 /** ZCode's registration shape: the same matcher group, but an argv rather than a command STRING —
