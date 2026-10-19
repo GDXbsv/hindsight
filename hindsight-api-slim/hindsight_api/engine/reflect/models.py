@@ -67,6 +67,7 @@ class LLMCall(BaseModel):
     duration_ms: int = Field(description="Execution time in milliseconds")
     input_tokens: int = Field(default=0, description="Input tokens used")
     output_tokens: int = Field(default=0, description="Output tokens used")
+    detail: str | None = Field(default=None, description="What the call decided, when it is a decision")
 
 
 class DirectiveInfo(BaseModel):

@@ -41,7 +41,7 @@ type ReflectRequest struct {
 	// If true, exclude all mental models from the reflect loop (skip search_mental_models tool).
 	ExcludeMentalModels *bool `json:"exclude_mental_models,omitempty"`
 	ExcludeMentalModelIds []string `json:"exclude_mental_model_ids,omitempty"`
-	// Allow an empty answer. When memory holds nothing that answers the query, the response has an empty `text` and `abstained: true`, instead of reflect searching on or failing. With a decision model the check costs no LLM call: reflect stops after the first search when the decision model judges it not enough. For callers that act on any text they get back, such as an agent's memory watcher that should speak only when memory has something to say.
+	// Allow an empty answer. When memory holds nothing that answers the query, the response has an empty `text` and `abstained: true`, instead of reflect searching on or failing. With a decision model, it is asked the query itself about the `context` and the best memories found: when it sees nothing the answer depends on, reflect returns with no LLM call; otherwise the answer reads only the memories it picked. Word the query as the question to decide (\"does my change go against a recorded decision?\"); `context` is what it is about. For callers that act on any text they get back, such as an agent's memory watcher that should speak only when memory has something to say.
 	Abstain *bool `json:"abstain,omitempty"`
 	SearchQueries []string `json:"search_queries,omitempty"`
 }

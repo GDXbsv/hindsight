@@ -636,6 +636,14 @@ enum MemoryCommands {
         /// Exclude specific mental models by ID (comma-separated)
         #[arg(long, value_delimiter = ',')]
         exclude_mental_model_ids: Option<Vec<String>>,
+
+        /// Allow an empty answer when memory holds nothing that answers the query
+        #[arg(long)]
+        abstain: bool,
+
+        /// What the first retrieval round searches, instead of a rewrite of the query (repeatable, up to 8)
+        #[arg(long = "search-query")]
+        search_queries: Vec<String>,
     },
 
     /// Store (retain) a single memory
@@ -1783,6 +1791,8 @@ fn run() -> Result<()> {
                 fact_types,
                 exclude_mental_models,
                 exclude_mental_model_ids,
+                abstain,
+                search_queries,
             } => commands::memory::reflect(
                 &client,
                 &bank_id,
@@ -1797,6 +1807,8 @@ fn run() -> Result<()> {
                 fact_types,
                 exclude_mental_models,
                 exclude_mental_model_ids,
+                abstain,
+                search_queries,
                 verbose,
                 output_format,
             ),

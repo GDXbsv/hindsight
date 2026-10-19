@@ -484,6 +484,36 @@ const watchResponse = await client.reflect(
 console.log(watchResponse.abstained ? 'nothing to say' : watchResponse.text);
 ```
 
+### CLI
+
+```bash
+# Ask a question that may need no answer: with --abstain an empty text means memory has nothing to say.
+hindsight memory reflect my-bank \
+  "Does my change go against a recorded decision about Alice's role? If so, say which, briefly." \
+  --context "I am updating the team page to list Alice as a junior engineer." \
+  --abstain --search-query "Alice role" --search-query "Alice promotion"
+```
+
+### Go
+
+```go
+// Ask a question that may need no answer: an empty text means memory has nothing to say.
+abstain := true
+abstainContext := "I am updating the team page to list Alice as a junior engineer."
+abstainResponse, _, _ := client.MemoryAPI.Reflect(ctx, "my-bank").
+	ReflectRequest(hindsight.ReflectRequest{
+		Query:         "Does my change go against a recorded decision about Alice's role? If so, say which, briefly.",
+		Context:       *hindsight.NewNullableString(&abstainContext),
+		Abstain:       &abstain,
+		SearchQueries: []string{"Alice role", "Alice promotion"},
+	}).Execute()
+if abstainResponse.GetAbstained() {
+	fmt.Println("nothing to say")
+} else {
+	fmt.Println(abstainResponse.GetText())
+}
+```
+
 ---
 
 ## Response

@@ -101,6 +101,9 @@ async def test_nothing_answers_returns_empty_with_no_llm_call():
 
     assert result.abstained and result.text == ""
     assert provider.tool_choices == [] and provider.rewrites == 1, "only the search rewrite ran"
+    assert [c.detail for c in result.llm_trace if c.scope == "decision_pick"] == [
+        "none=0.97 of 2 offered: silent, no LLM"
+    ]
 
 
 @pytest.mark.asyncio
@@ -116,6 +119,8 @@ async def test_the_answer_reads_only_what_the_decision_model_picked():
     assert "K=1024" in prompt and "GitHub Actions" not in prompt, "an unpicked memory never reaches the answer"
     assert provider.tool_choices == [], "one short call, not the agent's closing turn"
     assert [c.scope for c in result.llm_trace] == ["round_query", "decision_pick", "abstain_answer"]
+    (pick_call,) = [c for c in result.llm_trace if c.scope == "decision_pick"]
+    assert pick_call.detail == "none=0.20, kept 1 of 2 offered: unsure: the reflect LLM judges"
 
 
 @pytest.mark.asyncio

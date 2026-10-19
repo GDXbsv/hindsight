@@ -904,6 +904,7 @@ async def _run_reflect_agent_inner(
                 duration_ms=c["duration_ms"],
                 input_tokens=c.get("input_tokens", 0),
                 output_tokens=c.get("output_tokens", 0),
+                detail=c.get("detail"),
             )
             for c in llm_trace
         ]
@@ -2093,7 +2094,11 @@ async def _run_reflect_agent_inner(
                     pick_start = time.perf_counter()
                     picked_round = await _pick_round(query, context, tool_results, pick_evidence_fn, reflect_id)
                     llm_trace.append(
-                        {"scope": "decision_pick", "duration_ms": int((time.perf_counter() - pick_start) * 1000)}
+                        {
+                            "scope": "decision_pick",
+                            "duration_ms": int((time.perf_counter() - pick_start) * 1000),
+                            "detail": picked_round.detail if picked_round else "failed: the round is pruned instead",
+                        }
                     )
                 tool_results = picked_round.tool_results if picked_round else await _timed_prune(tool_results)
             round_landed = parallel_round
@@ -2382,6 +2387,8 @@ class _PickedRound:
     nothing_answers: bool
     #: How likely the decision model found it that none of the candidates answers.
     none: float = 1.0
+    #: The pick in words, for the trace: the score, what was kept and the path that follows.
+    detail: str = ""
 
 
 def _round_robin(pool: _EvidencePool) -> list[int]:
@@ -2415,7 +2422,7 @@ async def _pick_round(
     pool = _evidence_pool(tool_results)
     head = _round_robin(pool)[:_PICK_FROM]
     if not head:
-        return _PickedRound(tool_results=tool_results, nothing_answers=True)
+        return _PickedRound(tool_results=tool_results, nothing_answers=True, detail="nothing found: silent, no LLM")
     try:
         pick = await pick_evidence_fn(query, context, [pool.texts[i] for i in head])
     except OperationCancelledError:
@@ -2427,14 +2434,24 @@ async def _pick_round(
         logger.info(
             f"[REFLECT {reflect_id}] Decision-orchestrated: no evidence states the answer (none={pick.none:.2f})."
         )
-        return _PickedRound(tool_results=tool_results, nothing_answers=True)
+        return _PickedRound(
+            tool_results=tool_results,
+            nothing_answers=True,
+            detail=f"none={pick.none:.2f} of {len(head)} offered: silent, no LLM",
+        )
     best = max(pick.candidates, default=0.0)
     kept = {pool.slots[i] for i, p in zip(head, pick.candidates) if p >= _PICK_FLOOR or (p == best and p > 0)}
     logger.info(
         f"[REFLECT {reflect_id}] Decision-orchestrated: picked {len(kept)}/{len(pool.slots)} evidence items "
         f"(none={pick.none:.2f})."
     )
-    return _PickedRound(tool_results=_keep_slots(tool_results, kept), nothing_answers=False, none=pick.none)
+    path = "settled: the writer words the answer" if pick.none < _ANSWER_AT else "unsure: the reflect LLM judges"
+    return _PickedRound(
+        tool_results=_keep_slots(tool_results, kept),
+        nothing_answers=False,
+        none=pick.none,
+        detail=f"none={pick.none:.2f}, kept {len(kept)} of {len(head)} offered: {path}",
+    )
 
 
 def _unique_tool_call_ids(tool_calls: list["LLMToolCall"], already_emitted: set[str]) -> list[str]:

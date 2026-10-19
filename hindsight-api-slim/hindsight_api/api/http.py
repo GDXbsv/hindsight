@@ -1751,6 +1751,11 @@ class ReflectLLMCall(BaseModel):
 
     scope: str = Field(description="Call scope: agent_1, agent_2, final, etc.")
     duration_ms: int = Field(description="Execution time in milliseconds")
+    detail: str | None = Field(
+        default=None,
+        description="What the call decided, when it is a decision: for an abstain reflect's decision_pick, "
+        "the decision model's 'none' score, how many memories it kept, and which path follows",
+    )
 
 
 class ReflectBasedOn(BaseModel):
@@ -6727,7 +6732,10 @@ def _register_routes(app: FastAPI):
                     )
                     for tc in core_result.tool_trace
                 ]
-                llm_calls = [ReflectLLMCall(scope=lc.scope, duration_ms=lc.duration_ms) for lc in core_result.llm_trace]
+                llm_calls = [
+                    ReflectLLMCall(scope=lc.scope, duration_ms=lc.duration_ms, detail=lc.detail)
+                    for lc in core_result.llm_trace
+                ]
                 trace_result = ReflectTrace(
                     tool_calls=tool_calls,
                     llm_calls=llm_calls,

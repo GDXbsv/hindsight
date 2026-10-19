@@ -6039,6 +6039,12 @@ export type ReflectLlmCall = {
    * Execution time in milliseconds
    */
   duration_ms: number;
+  /**
+   * Detail
+   *
+   * What the call decided, when it is a decision: for an abstain reflect's decision_pick, the decision model's 'none' score, how many memories it kept, and which path follows
+   */
+  detail?: string | null;
 };
 
 /**
@@ -6161,7 +6167,7 @@ export type ReflectRequest = {
   /**
    * Abstain
    *
-   * Allow an empty answer. When memory holds nothing that answers the query, the response has an empty `text` and `abstained: true`, instead of reflect searching on or failing. With a decision model the check costs no LLM call: reflect stops after the first search when the decision model judges it not enough. For callers that act on any text they get back, such as an agent's memory watcher that should speak only when memory has something to say.
+   * Allow an empty answer. When memory holds nothing that answers the query, the response has an empty `text` and `abstained: true`, instead of reflect searching on or failing. With a decision model, it is asked the query itself about the `context` and the best memories found: when it sees nothing the answer depends on, reflect returns with no LLM call; otherwise the answer reads only the memories it picked. Word the query as the question to decide ("does my change go against a recorded decision?"); `context` is what it is about. For callers that act on any text they get back, such as an agent's memory watcher that should speak only when memory has something to say.
    */
   abstain?: boolean;
   /**
