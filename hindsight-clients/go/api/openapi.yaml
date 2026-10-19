@@ -9413,6 +9413,9 @@ components:
           description: Execution time in milliseconds
           title: Duration Ms
           type: integer
+        detail:
+          nullable: true
+          type: string
       required:
       - duration_ms
       - scope

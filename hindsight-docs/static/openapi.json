@@ -13489,6 +13489,18 @@
             "type": "integer",
             "title": "Duration Ms",
             "description": "Execution time in milliseconds"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail",
+            "description": "What the call decided, when it is a decision"
           }
         },
         "type": "object",

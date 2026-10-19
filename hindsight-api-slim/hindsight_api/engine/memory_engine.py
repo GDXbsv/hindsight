@@ -16096,7 +16096,8 @@ class MemoryEngine(MemoryEngineInterface):
 
             # Convert agent LLM trace to LLMCallTrace objects
             llm_trace_result = [
-                LLMCallTrace(scope=lc.scope, duration_ms=lc.duration_ms) for lc in agent_result.llm_trace
+                LLMCallTrace(scope=lc.scope, duration_ms=lc.duration_ms, detail=lc.detail)
+                for lc in agent_result.llm_trace
             ]
 
             # Extract memories and observations from tool outputs - only include those the agent actually used

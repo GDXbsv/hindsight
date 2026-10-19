@@ -344,3 +344,32 @@ async def test_the_writer_model_writes_a_settled_answer_and_only_that():
         assert result.text == ("From writer." if writes == "writer" else "From reflect."), none
         assert len((writer if writes == "writer" else reflect_llm).answer_prompts) == 1
         assert not (reflect_llm if writes == "writer" else writer).answer_prompts
+
+
+@pytest.mark.asyncio
+async def test_the_http_trace_carries_the_decision_pick_detail(memory, monkeypatch):
+    """The pick's detail survives the engine's result and the HTTP response, where a watcher reads it."""
+    import httpx
+
+    from hindsight_api.api import create_app
+    from hindsight_api.engine.response_models import LLMCallTrace, ReflectResult
+
+    async def reflect_async(**_):
+        return ReflectResult(
+            text="",
+            based_on={},
+            abstained=True,
+            llm_trace=[LLMCallTrace(scope="decision_pick", duration_ms=3, detail="none=0.97 of 2 offered: silent")],
+        )
+
+    monkeypatch.setattr(memory, "reflect_async", reflect_async)
+    app = create_app(memory, initialize_memory=False)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/v1/default/banks/trace-detail/reflect",
+            json={"query": "anything?", "abstain": True, "include": {"tool_calls": {}}},
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["trace"]["llm_calls"] == [
+        {"scope": "decision_pick", "duration_ms": 3, "detail": "none=0.97 of 2 offered: silent"}
+    ]
