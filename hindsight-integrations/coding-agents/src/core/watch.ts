@@ -79,8 +79,8 @@ export const HEADSUP_Q =
   "an exception) about exactly the code this request will change must my fix respect, that the request " +
   "itself does not state? Only what someone decided (a chosen value or rule, an exception, a rejected " +
   "option), not what the code already does: I can read that myself. Tell me in at most 70 words, as " +
-  "'Before you change <the code>: <every such rule, " +
-  "in its final form, in the words the memory states it; each rule a fix could get wrong>', copying " +
+  "'Before you change <the code>: <every such rule the memory's source text records for this code, " +
+  "in its final form, not only its summary; each rule a fix could get wrong>', copying " +
   "exact literals verbatim, no advice beyond the rules. If memory records no such decision about this " +
   "code, reply with nothing.";
 

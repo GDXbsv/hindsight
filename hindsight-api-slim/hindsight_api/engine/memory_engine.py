@@ -3147,32 +3147,44 @@ class MemoryEngine(MemoryEngineInterface):
             else:
                 reflect_base_url = ""
 
-        _reflect_base_llm = LLMConfig(
-            provider=reflect_provider,
-            api_key=reflect_api_key,
-            base_url=reflect_base_url,
-            model=reflect_model,
-            reasoning_effort=config.reflect_llm_reasoning_effort or config.llm_reasoning_effort,
-            extra_body=config.reflect_llm_extra_body or config.llm_extra_body,
-            default_headers=config.llm_default_headers,
-            cache_affinity=config.reflect_llm_cache_affinity or config.llm_cache_affinity,
-            ollama_num_ctx=config.llm_ollama_num_ctx,
-            litellmrouter_config=config.reflect_llm_litellmrouter_config or config.llm_litellmrouter_config,
-            bedrock_service_tier=config.llm_bedrock_service_tier,
-            structured_output_forced_tool=config.llm_structured_output_forced_tool,
-            gemini_service_tier=config.llm_gemini_service_tier,
-            groq_service_tier=config.llm_groq_service_tier,
-            openai_service_tier=config.llm_openai_service_tier,
-            gemini_safety_settings=_llm_gemini_safety_settings,
-            prompt_cache_enabled=config.llm_prompt_cache_enabled,
-            codex_home=config.llm_codex_home,
-            vertexai_project_id=config.llm_vertexai_project_id,
-            vertexai_region=config.llm_vertexai_region,
-            vertexai_service_account_key=config.llm_vertexai_service_account_key,
-            **reflect_call_defaults.as_kwargs(),
-        )
+        def _reflect_llm(model: str, extra_body: dict[str, Any] | None) -> LLMConfig:
+            return LLMConfig(
+                provider=reflect_provider,
+                api_key=reflect_api_key,
+                base_url=reflect_base_url,
+                model=model,
+                reasoning_effort=config.reflect_llm_reasoning_effort or config.llm_reasoning_effort,
+                extra_body=extra_body,
+                default_headers=config.llm_default_headers,
+                cache_affinity=config.reflect_llm_cache_affinity or config.llm_cache_affinity,
+                ollama_num_ctx=config.llm_ollama_num_ctx,
+                litellmrouter_config=config.reflect_llm_litellmrouter_config or config.llm_litellmrouter_config,
+                bedrock_service_tier=config.llm_bedrock_service_tier,
+                structured_output_forced_tool=config.llm_structured_output_forced_tool,
+                gemini_service_tier=config.llm_gemini_service_tier,
+                groq_service_tier=config.llm_groq_service_tier,
+                openai_service_tier=config.llm_openai_service_tier,
+                gemini_safety_settings=_llm_gemini_safety_settings,
+                prompt_cache_enabled=config.llm_prompt_cache_enabled,
+                codex_home=config.llm_codex_home,
+                vertexai_project_id=config.llm_vertexai_project_id,
+                vertexai_region=config.llm_vertexai_region,
+                vertexai_service_account_key=config.llm_vertexai_service_account_key,
+                **reflect_call_defaults.as_kwargs(),
+            )
+
+        _reflect_base_llm = _reflect_llm(reflect_model, config.reflect_llm_extra_body or config.llm_extra_body)
         self._reflect_llm_config = _build_llm(_reflect_base_llm, config, "reflect_", reflect_call_defaults)
         self._reflect_llm_config_at_init = self._reflect_llm_config
+        # An abstain reflect whose decision model already picked the memories that answer has no judgement
+        # left, only the note to write, so a faster model can write it: the client-side memory watcher
+        # wrote its notes with flash-lite while the decision model chose. The reflect model's thinking
+        # settings (extra_body) need not fit another model, so it writes without them.
+        self._reflect_abstain_writer_llm = (
+            _reflect_llm(config.reflect_abstain_writer_llm_model, None)
+            if config.reflect_abstain_writer_llm_model
+            else None
+        )
 
         # Mental-model refresh LLM config - the automatic refresh runs the reflect
         # pipeline in the background, where a human is not waiting and the job must
@@ -16034,6 +16046,11 @@ class MemoryEngine(MemoryEngineInterface):
                         abstain=abstain,
                         search_queries=search_queries,
                         pick_evidence_fn=decision_model.pick_answering if decision_model and abstain else None,
+                        settled_llm_config=self._reflect_abstain_writer_llm.with_config(
+                            resolved_reflect_config, bank_id=bank_id, operation=_operation_label
+                        )
+                        if self._reflect_abstain_writer_llm is not None and abstain
+                        else None,
                         reflect_id=reflect_id,
                     ),
                     timeout=wall_timeout,

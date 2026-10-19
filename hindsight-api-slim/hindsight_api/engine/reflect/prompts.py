@@ -1171,7 +1171,7 @@ FINAL_SYSTEM_PROMPT = build_final_system_prompt()
 _ABSTAIN_ANSWER_HEAD = """Answer the question from the memories given, and from nothing else.
 
 - Use only what the memories state. Never invent a value, name or rule.
-- A memory's source is what was actually said; its first line is a summary of it. Where the two disagree, or the summary leaves a rule out, follow the source, and within the source its latest statement."""
+- The source text, when given, is what was actually said; the memory lines are shorter summaries of it. Where a summary disagrees with it or leaves a rule out, follow the source, and within the source its latest statement."""
 
 _ABSTAIN_ANSWER_DECIDE = """- Write `check` first: hold each rule and value the memories state against what the context shows (its code, command or plan), then decide.
 - `applies` is false when the memories do not state what the question asks for: they only share its topic, or the true answer is no or nothing (nothing conflicts, no decision applies). Then leave `answer` empty.

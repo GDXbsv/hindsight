@@ -680,6 +680,7 @@ async def _run_reflect_agent_inner(
     abstain: bool = False,
     search_queries: list[str] | None = None,
     pick_evidence_fn: Callable[[str, str | None, list[str]], Awaitable["EvidencePick"]] | None = None,
+    settled_llm_config: "AnyLLMProvider | None" = None,
     *,
     reflect_id: str,
     provider_impl: Any,
@@ -734,6 +735,8 @@ async def _run_reflect_agent_inner(
             depends on, or none. With ``abstain``, asked of the first round in place of its pruning and the
             sufficiency check: a likely "none" answers nothing with no LLM call, and otherwise
             the answer reads only the picked candidates.
+        settled_llm_config: writes the answer of a settled pick (only the answer, see
+            ``_answer_picked``) in place of ``llm_config``; unset, ``llm_config`` writes it.
 
     Returns:
         ReflectAgentResult with final answer and metadata
@@ -957,6 +960,7 @@ async def _run_reflect_agent_inner(
         completion_cap: int | None,
         temperature: float | None = None,
         response_format: type[BaseModel] | None = None,
+        llm: "AnyLLMProvider | None" = None,
     ) -> Any:
         """One tool-less LLM call with usage/trace accounting folded in.
 
@@ -970,7 +974,7 @@ async def _run_reflect_agent_inner(
         queue_wait = LLMQueueWait()
         queue_token = set_queue_wait_sink(queue_wait)
         try:
-            call_result = await llm_config.call(
+            call_result = await (llm or llm_config).call(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
@@ -1157,7 +1161,15 @@ async def _run_reflect_agent_inner(
                     chunks.setdefault(str(chunk.get("id")), str(chunk["text"]))
             source = "\n\n".join(chunks.values())[:_ANSWER_SOURCE_CHARS]
             if source:
-                memories.append(f"\n## Source text of these memories\n{source}")
+                # A settled pick only words the answer, and worded it from whichever came first: after
+                # the summaries it copied them and dropped a rule only the source said (sde-bench
+                # deploywave: "dependencies are assumed already live"). A pick still to be judged keeps
+                # the summaries first: judged against the source first, flash read a summary of what
+                # the code does (listmerge) as "no decision" and went silent where the watcher spoke.
+                if settled:
+                    memories = [f"## Source text of these memories\n{source}\n\n## Summaries of it", *memories]
+                else:
+                    memories.append(f"\n## Source text of these memories\n{source}")
         # Structured, not a sentinel: asked to reply NONE when nothing applies, flash still wrote
         # "Nothing conflicts." now and then, and the watcher delivered it as a note.
         # A settled pick writes the answer alone: its check and verdict were never read, and writing
@@ -1171,6 +1183,7 @@ async def _run_reflect_agent_inner(
                 ),
                 synthesis_max_completion_tokens,
                 response_format=SettledAbstainAnswer if settled else AbstainAnswer,
+                llm=settled_llm_config if settled else None,
             ),
             settled=settled,
         )

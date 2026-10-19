@@ -243,7 +243,6 @@ async def test_the_answer_reads_the_facts_under_the_picked_memory():
 @pytest.mark.asyncio
 async def test_the_answer_reads_the_source_text_of_the_picked_memory():
     """Source facts are off by default: the picked memory's facts are expanded to their chunks."""
-    provider = _ScriptedProvider([], answer="Round the prorated quota UP.")
     search = AsyncMock(
         return_value={
             "observations": [{"id": "obs-q", "text": "overage_charge prorates", "source_fact_ids": ["f1", "f2"]}]
@@ -253,13 +252,18 @@ async def test_the_answer_reads_the_source_text_of_the_picked_memory():
     expand = AsyncMock(
         return_value={"results": [{"memory_id": "f1", "chunk": chunk}, {"memory_id": "f2", "chunk": chunk}]}
     )
-    pick = AsyncMock(return_value=EvidencePick(none=0.05, candidates=[0.95]))
+    # A pick still to be judged reads the summary first; a settled one, which only words the answer,
+    # reads the source first.
+    for none, source_first in ((0.5, False), (0.05, True)):
+        provider = _ScriptedProvider([], answer="Round the prorated quota UP.")
+        pick = AsyncMock(return_value=EvidencePick(none=none, candidates=[0.95]))
 
-    await _reflect(provider, pick=pick, search_observations=search, expand=expand)
+        await _reflect(provider, pick=pick, search_observations=search, expand=expand)
 
-    assert expand.await_args.args == (["f1", "f2"], "chunk")
-    (prompt,) = provider.answer_prompts
-    assert prompt.count("the allowance is rounded UP, never truncated") == 1, "one chunk, once"
+        assert expand.await_args.args == (["f1", "f2"], "chunk")
+        (prompt,) = provider.answer_prompts
+        assert prompt.count("the allowance is rounded UP, never truncated") == 1, "one chunk, once"
+        assert (prompt.index("rounded UP") < prompt.index("overage_charge prorates")) is source_first, none
 
 
 @pytest.mark.asyncio
@@ -307,3 +311,31 @@ async def test_a_settled_pick_writes_the_answer_alone_and_keeps_it():
     assert formats == [SettledAbstainAnswer]
     assert "`check`" not in systems[0] and "`applies`" not in systems[0]
     assert not result.abstained and result.text == "Memory suffixes are binary: K=1024."
+
+
+@pytest.mark.asyncio
+async def test_the_writer_model_writes_a_settled_answer_and_only_that():
+    """With a writer model set, a settled pick's answer is written by it; a pick the LLM still has to judge
+    is answered by the reflect model."""
+
+    def scripted(reply: dict) -> _ScriptedProvider:
+        p = _ScriptedProvider([])
+
+        def call(**k):
+            prompt = k["messages"][-1]["content"]
+            if "## Memories" not in prompt:
+                return LLMCallResult(content=prompt, usage=TokenUsage(input_tokens=1, output_tokens=1))
+            p.answer_prompts.append(prompt)
+            return LLMCallResult(content=json.dumps(reply), usage=TokenUsage(input_tokens=1, output_tokens=1))
+
+        p.call = AsyncMock(side_effect=call)  # type: ignore[method-assign]
+        return p
+
+    for none, writes in ((0.02, "writer"), (0.5, "reflect")):
+        reflect_llm = scripted({"check": "K differs.", "applies": True, "answer": "From reflect."})
+        writer = scripted({"answer": "From writer."})
+        pick = AsyncMock(return_value=EvidencePick(none=none, candidates=[0.97, 0.01]))
+        result = await _reflect(reflect_llm, pick=pick, settled_llm_config=writer)
+        assert result.text == ("From writer." if writes == "writer" else "From reflect."), none
+        assert len((writer if writes == "writer" else reflect_llm).answer_prompts) == 1
+        assert not (reflect_llm if writes == "writer" else writer).answer_prompts

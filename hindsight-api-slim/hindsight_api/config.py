@@ -451,6 +451,8 @@ ENV_REFLECT_LLM_LITELLMROUTER_CONFIG = "HINDSIGHT_API_REFLECT_LLM_LITELLMROUTER_
 ENV_REFLECT_LLM_REASONING_EFFORT = "HINDSIGHT_API_REFLECT_LLM_REASONING_EFFORT"
 ENV_REFLECT_LLM_EXTRA_BODY = "HINDSIGHT_API_REFLECT_LLM_EXTRA_BODY"
 ENV_REFLECT_LLM_CACHE_AFFINITY = "HINDSIGHT_API_REFLECT_LLM_CACHE_AFFINITY"
+# An abstain reflect's answer once the decision model already picked its memories (see MemoryEngine).
+ENV_REFLECT_ABSTAIN_WRITER_LLM_MODEL = "HINDSIGHT_API_REFLECT_ABSTAIN_WRITER_LLM_MODEL"
 
 ENV_CONSOLIDATION_LLM_PROVIDER = "HINDSIGHT_API_CONSOLIDATION_LLM_PROVIDER"
 ENV_CONSOLIDATION_LLM_API_KEY = "HINDSIGHT_API_CONSOLIDATION_LLM_API_KEY"
@@ -3944,6 +3946,7 @@ class HindsightConfig:
     reflect_decision_model_api_key: str | None = None
     reflect_decision_model_model: str | None = None
     reflect_decision_model_base_url: str | None = None
+    reflect_abstain_writer_llm_model: str | None = None
     consolidation_decision_model_provider: str | None = None
     consolidation_decision_model_api_key: str | None = None
     consolidation_decision_model_model: str | None = None
@@ -5107,6 +5110,7 @@ class HindsightConfig:
                 for operation in DECISION_MODEL_OPERATIONS
                 for setting in ("PROVIDER", "API_KEY", "MODEL", "BASE_URL")
             },
+            reflect_abstain_writer_llm_model=os.getenv(ENV_REFLECT_ABSTAIN_WRITER_LLM_MODEL) or None,
             # Server
             host=os.getenv(ENV_HOST) or None,
             port=int(os.getenv(ENV_PORT, DEFAULT_PORT)),
