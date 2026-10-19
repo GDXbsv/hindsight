@@ -6,8 +6,10 @@
  *
  *  - the hook itself (milliseconds): hand over a note an earlier review left, as `additionalContext`
  *    next to this tool result, then start this step's review in a detached background process;
- *  - the background process (`--work`): read the transcript's new steps, ask reflect, and stash the
- *    note for the next tool call to hand over.
+ *  - the background process (`--work`): on a server with sessions, send the transcript's new lines
+ *    to the session and stash the notes it returns (the watcher itself runs in Hindsight, see
+ *    core/session-sync.ts); on an older server, read the new steps, ask reflect, and stash the note.
+ *    Either way the next tool call (or prompt, or Stop) hands it over.
  *
  * Claude Code's own background hooks were tried and do not fit: an `async` hook's context arrives
  * only with the user's next message (never mid-task in `claude -p`), and an `asyncRewake` one is
@@ -26,7 +28,9 @@ import { DAEMON_WAIT_RETAIN_MS, ensureDaemon } from "./daemon";
 import { diag } from "./diag";
 import { HindsightClient } from "./hindsight";
 import { describeError } from "./log";
-import { stashPendingContext, takePendingContext } from "./session-cache";
+import { sessionRootDir, stashPendingContext, takePendingContext } from "./session-cache";
+import type { EventsOf } from "./session-events";
+import { sessionOptions, syncSession, type SyncResult } from "./session-sync";
 import { sessionDir, watchOnce, type StepsOf } from "./watch-hook";
 
 const EVENT_ENV = "HINDSIGHT_WATCH_EVENT";
@@ -35,17 +39,28 @@ export interface WatchHarness {
   harness: string;
   /** The built entry file, which the hook starts again detached for the review. */
   entry: string;
+  /** The transcript as the client-side watcher's steps (servers without sessions). */
   stepsOf: StepsOf;
+  /** The transcript as session events (servers with sessions). */
+  eventsOf: EventsOf;
 }
+
+/** The watcher's entry file per harness: the prompt hook starts it too (see startWatchSync). */
+export const WATCH_ENTRIES: Record<string, string> = {
+  "claude-code": "claude-watch-hook.js",
+  codex: "codex-watch-hook.js",
+};
 
 interface WatchEvent {
   session_id?: string;
   transcript_path?: string;
   cwd?: string;
+  /** The prompt being submitted, when the prompt hook started this sync. */
+  prompt?: string;
 }
 
 /** Start this step's review without waiting for it: the review outlives the hook. */
-function startReview(h: WatchHarness, ev: WatchEvent): void {
+function startReview(h: Pick<WatchHarness, "entry">, ev: WatchEvent): void {
   try {
     const self = join(dirname(fileURLToPath(import.meta.url)), h.entry);
     const child = spawn(process.execPath, [self, "--work"], {
@@ -72,14 +87,63 @@ export function watchConfig(h: WatchHarness, cwd: string): { cfg: Config; bankId
   return resolved.cfg.disabled || resolved.cfg.autoInject !== "watch" ? null : resolved;
 }
 
-/** The background half: judge what the session did, and leave a note for the next tool call. */
+/**
+ * The prompt hook's part: send the request to the session at once, so the heads-up check starts
+ * while the agent reads its first files instead of at its first tool call. Detached, like a review.
+ */
+export function startWatchSync(harness: string, ev: WatchEvent): void {
+  const entry = WATCH_ENTRIES[harness];
+  if (entry && ev.session_id) startReview({ entry }, ev);
+}
+
+/** The session's sync, or null when the server has no sessions (the client-side watcher runs). */
+export async function syncWatchedSession(
+  h: Pick<WatchHarness, "harness" | "eventsOf">,
+  ev: WatchEvent,
+  resolved: { cfg: Config; bankId: string },
+  turnEnd = false
+): Promise<SyncResult | null> {
+  if (!ev.session_id) return null;
+  const cwd = ev.cwd ?? process.cwd();
+  const { cfg, bankId } = resolved;
+  const r = await syncSession({
+    sessionId: ev.session_id,
+    transcriptPath: ev.transcript_path,
+    cwd,
+    dir: sessionDir(join(tmpdir(), "hindsight-watch"), ev.session_id),
+    client: new HindsightClient({ apiUrl: cfg.apiUrl, apiToken: cfg.apiToken, bank: bankId }),
+    eventsOf: h.eventsOf,
+    options: sessionOptions({
+      cfg,
+      harness: h.harness,
+      sessionId: ev.session_id,
+      bankId,
+      cwd,
+      sessionRoot: sessionRootDir(h.harness, ev.session_id, cwd),
+      title: ev.prompt,
+    }),
+    ...(ev.prompt ? { prompt: { text: ev.prompt, ts: new Date().toISOString() } } : {}),
+    turnEnd,
+  });
+  return r.unsupported ? null : r;
+}
+
+/** The background half: send what the session did, and leave its notes for the next tool call. */
 async function review(h: WatchHarness, ev: WatchEvent): Promise<void> {
-  if (!ev.transcript_path || !ev.session_id) return;
+  if (!ev.session_id) return;
   const cwd = ev.cwd ?? process.cwd();
   const resolved = watchConfig(h, cwd);
   if (!resolved) return;
   const { cfg, bankId } = resolved;
   await ensureDaemon(cfg, h.harness, { waitMs: DAEMON_WAIT_RETAIN_MS });
+  const synced = await syncWatchedSession(h, ev, resolved);
+  if (synced) {
+    for (const note of synced.notes) stashPendingContext(`${h.harness}-watch`, ev.session_id, note);
+    if (synced.notes.length) diag(h.harness, "watch_notes", { count: synced.notes.length });
+    return;
+  }
+  // A server without sessions: the client-side watcher judges the moment itself.
+  if (!ev.transcript_path) return;
   const note = await watchOnce({
     harness: h.harness,
     stepsOf: h.stepsOf,

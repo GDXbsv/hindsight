@@ -128,7 +128,7 @@ export function sourceDiff(cwd: string): string {
 }
 
 /** Where the agent can read a document. Commit ids are this repo's own, so git can show them. */
-function whereFor(documentId: string, mentionedAt?: string | null): string {
+export function whereFor(documentId: string, mentionedAt?: string | null): string {
   if (documentId.startsWith("git:")) return `git show ${documentId.slice(4, 16)}`;
   if (documentId.startsWith("gitlog:")) return "git log";
   if (documentId.startsWith("conversation:") || documentId.startsWith("chat:"))

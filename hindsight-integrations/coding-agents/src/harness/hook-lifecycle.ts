@@ -6,6 +6,7 @@
  */
 import { runHook, type HookSpec } from "../core/hook";
 import { runRetainHook, type RetainHookSpec } from "../core/retain-hook";
+import { claudeEventsOf, codexEventsOf } from "../core/session-events";
 import { runSessionStartHook, type SessionStartHookSpec } from "../core/session-start";
 import { ensureTraecodeWorkspaceMcp } from "../core/traecode-mcp";
 import { readCodexTranscript } from "../core/transcript-codex";
@@ -302,6 +303,7 @@ export const HOOK_HARNESSES: Record<HookHarnessName, HookHarnessSpec> = {
       hostTimeoutSec: 60,
       harness: "claude-code",
       accept: notGrokHosted,
+      watch: { eventsOf: claudeEventsOf, stopDelivers: true },
       parse: (ev) => ({
         sessionId: ev.session_id as string | undefined,
         transcriptPath: ev.transcript_path as string | undefined,
@@ -323,6 +325,8 @@ export const HOOK_HARNESSES: Record<HookHarnessName, HookHarnessSpec> = {
     retain: {
       hostTimeoutSec: 60,
       harness: "codex",
+      // Codex's Stop hook is not known to take `decision: "block"`: a late note waits for the next prompt.
+      watch: { eventsOf: codexEventsOf, stopDelivers: false },
       parse: (ev) => ({
         sessionId: ev.session_id as string | undefined,
         transcriptPath: ev.transcript_path as string | undefined,

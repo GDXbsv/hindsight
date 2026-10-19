@@ -32,6 +32,13 @@ vi.mock("./config", async (importOriginal) => {
   return { ...actual, loadConfig: () => actual.resolveConfig(rawConfig) };
 });
 
+/** The session sync the Stop hook runs in watch mode: what the server answers, per test. */
+let syncAnswer: () => Promise<unknown> = async () => null;
+vi.mock("./watch-entry", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./watch-entry")>();
+  return { ...actual, syncWatchedSession: vi.fn(() => syncAnswer()) };
+});
+
 let root: string;
 let file: string;
 
@@ -908,5 +915,79 @@ describe("every session write-back path honors retainSessions", () => {
       return !src.includes("cfg.retainSessions") && !src.includes("writeBackEnabled");
     });
     expect(ungated).toEqual([]);
+  });
+});
+
+describe("runRetainHook with the memory watcher on a session", () => {
+  const event = () => ({
+    session_id: `sess-watch-${basename(root)}`,
+    transcript_path: file,
+    cwd: root,
+  });
+  const spec = {
+    harness: "claude-code",
+    hostTimeoutSec: 60,
+    parse: (ev: Record<string, unknown>) => ({
+      sessionId: ev.session_id as string,
+      transcriptPath: ev.transcript_path as string,
+      cwd: ev.cwd as string,
+    }),
+    watch: { eventsOf: () => [], stopDelivers: true },
+  };
+  let written: string[];
+
+  beforeEach(() => {
+    vi.stubEnv("HINDSIGHT_DIAG_FILE", join(root, "diag.log"));
+    rawConfig = { autoInject: "watch" };
+    writeFileSync(
+      file,
+      JSON.stringify({ type: "user", message: { role: "user", content: "fix it" } })
+    );
+    stdin = JSON.stringify(event());
+    written = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+      written.push(String(chunk));
+      return true;
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    syncAnswer = async () => null;
+  });
+
+  const stubClient = () => {
+    const retain = vi.fn().mockResolvedValue(undefined);
+    const makeClient = vi.fn(() => ({
+      retain,
+      supportsAppendRetain: async () => false,
+    })) as unknown as Parameters<typeof runRetainHook>[1];
+    return { retain, makeClient };
+  };
+
+  it("leaves saving to the session and hands a late note over by keeping the agent going", async () => {
+    syncAnswer = async () => ({ notes: ["K is 1024."], unsupported: false, checking: false });
+    const { retain, makeClient } = stubClient();
+    await runRetainHook(spec, makeClient);
+    expect(retain).not.toHaveBeenCalled();
+    expect(written.map((w) => JSON.parse(w))).toEqual([
+      { decision: "block", reason: "K is 1024." },
+    ]);
+  });
+
+  it("never writes back itself when the session sync failed: the session saves the turn later", async () => {
+    syncAnswer = async () => Promise.reject(new Error("down"));
+    const { retain, makeClient } = stubClient();
+    await runRetainHook(spec, makeClient);
+    expect(retain).not.toHaveBeenCalled();
+    expect(written).toEqual([]);
+  });
+
+  it("writes back as before on a server without sessions", async () => {
+    syncAnswer = async () => null;
+    const { retain, makeClient } = stubClient();
+    await runRetainHook(spec, makeClient);
+    expect(retain).toHaveBeenCalledTimes(1);
   });
 });

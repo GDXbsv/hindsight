@@ -24,6 +24,7 @@ import {
 import { version as PKG_VERSION } from "../../package.json";
 import { pool, semverGte, sleep } from "./util";
 import type { RetainStamp } from "./retain-stamp";
+import type { AppendResult, SessionEvent, SessionNote, SessionOptions } from "./session-events";
 
 /** Sent on every request so the server can tell which integration is calling. */
 export const USER_AGENT = `hindsight-coding-agents/${PKG_VERSION}`;
@@ -871,6 +872,37 @@ export class HindsightClient {
       text: data.abstained ? "" : (data.text ?? "").trim(),
       memoryIds: (data.based_on?.memories ?? []).map((m) => m.id),
       supported: typeof data.abstained === "boolean",
+    };
+  }
+
+  /**
+   * Send a live session what happened since the last append, and take the notes it has (see
+   * core/session-sync.ts). `supported: false` when the server predates sessions: the route is
+   * unknown (404), since on a server that has it an append creates the session it names.
+   */
+  async appendSession(
+    sessionId: string,
+    body: { events: SessionEvent[]; ack: number; session?: SessionOptions },
+    timeoutMs: number
+  ): Promise<AppendResult> {
+    const r = await this.req(
+      "POST",
+      this.bankUrl(`/sessions/${encodeURIComponent(sessionId)}/events`),
+      body,
+      [405],
+      timeoutMs
+    );
+    if (r.status === 404 || r.status === 405) return { supported: false };
+    const data = (await r.json()) as {
+      notes?: SessionNote[];
+      checking?: boolean;
+      last_seq?: number;
+    };
+    return {
+      supported: true,
+      notes: data.notes ?? [],
+      checking: Boolean(data.checking),
+      lastSeq: data.last_seq ?? 0,
     };
   }
 

@@ -15,7 +15,9 @@
  */
 import { deriveBankIdOrSkip } from "./bank";
 import { retainLiveSession } from "./chat";
-import { applyBankConfig, loadConfig } from "./config";
+import { applyBankConfig, loadConfig, WATCH_HARNESSES } from "./config";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DAEMON_WAIT_RETAIN_MS, ensureDaemon } from "./daemon";
 import { diag, readHookEvent } from "./diag";
 import { describeError, log, setLogLevel } from "./log";
@@ -23,7 +25,17 @@ import type { ClientOpts } from "./hindsight";
 import { HindsightClient } from "./hindsight";
 import type { RetainCursorStore } from "./retain-cursor";
 import { buildRetainStamp, type RetainStamp } from "./retain-stamp";
-import { fileCursorStore, fileUsageCursorStore, sessionRootDir } from "./session-cache";
+import {
+  fileCursorStore,
+  fileUsageCursorStore,
+  sessionRootDir,
+  stashPendingContext,
+  takePendingContext,
+} from "./session-cache";
+import type { EventsOf } from "./session-events";
+import { sessionsUnsupported, type SyncResult } from "./session-sync";
+import { syncWatchedSession } from "./watch-entry";
+import { sessionDir } from "./watch-hook";
 import { readClaudeTranscript } from "./transcript";
 import { appendJournalTurn, journalPath, readJournalTranscript } from "./turn-journal";
 import { stripInjectedMemory } from "./transcript-util";
@@ -76,6 +88,12 @@ export interface RetainHookSpec {
    * Declaring it here rather than in `parse` is what keeps `parse` pure — resolving the reply is a
    * read of the ephemeral transcript the host is about to delete, and closing the turn is a write.
    */
+  /**
+   * The memory watcher's session (autoInject "watch", core/session-sync.ts): how this harness's
+   * transcript reads as session events, and whether its Stop hook may hand over a late note by
+   * keeping the agent going (Claude Code's `decision: "block"`).
+   */
+  watch?: { eventsOf: EventsOf; stopDelivers: boolean };
   journal?: {
     /** The assistant reply for this turn, from the Stop event. "" when the host sent none. */
     assistantText(event: Record<string, unknown>): string;
@@ -226,6 +244,59 @@ export async function runRetainHook(
   cfg = resolved.cfg;
   const bankId = resolved.bankId;
   if (cfg.disabled) return; // per-bank opt-out (banks.<id> override)
+
+  // The memory watcher on a session (a server with sessions): the end of the turn goes to the
+  // session, and the session saves the turn into this same `conversation:<session>` document — so
+  // nothing is written back from here, and only usage is recorded. Once a session is in use the
+  // plugin never also writes back itself, even when this sync fails: the document would get the
+  // turn twice when the session saves it later. A note written after the agent's last tool call is
+  // handed over now as a reason to go on, where the harness allows it, instead of waiting a turn.
+  if (
+    spec.watch &&
+    sessionId &&
+    cfg.autoInject === "watch" &&
+    WATCH_HARNESSES.includes(spec.harness) &&
+    !sessionsUnsupported(sessionDir(join(tmpdir(), "hindsight-watch"), sessionId))
+  ) {
+    await ensureDaemon(cfg, spec.harness, { waitMs: DAEMON_WAIT_RETAIN_MS });
+    let synced: SyncResult | null = null;
+    let failed = false;
+    try {
+      synced = await syncWatchedSession(
+        { harness: spec.harness, eventsOf: spec.watch.eventsOf },
+        { session_id: sessionId, transcript_path: transcriptPath, cwd },
+        { cfg, bankId },
+        true
+      );
+    } catch (e) {
+      failed = true;
+      diag(spec.harness, "session_sync_failed", { error: describeError(e) });
+    }
+    if (synced || failed) {
+      const notes = [
+        takePendingContext(`${spec.harness}-watch`, sessionId),
+        ...(synced?.notes ?? []),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      if (notes) {
+        if (spec.watch.stopDelivers)
+          process.stdout.write(JSON.stringify({ decision: "block", reason: notes }));
+        else stashPendingContext(`${spec.harness}-watch`, sessionId, notes); // the next prompt hands it over
+      }
+      await buildRetain({
+        harness: spec.harness,
+        sessionId,
+        transcriptPath,
+        readTranscript,
+        lastAssistantMessage,
+        readLastMessage: spec.readLastMessage,
+        retryUntil: hostDeadline,
+        bankId,
+      });
+      return;
+    }
+  }
   // Checked only HERE, after the bank is resolved, so a `banks.<id>` section can turn write-back
   // back on for one repo under a global `retainSessions: false` (and vice versa). Before the
   // daemon start below: a session that writes nothing has no reason to bring a server up. It still
