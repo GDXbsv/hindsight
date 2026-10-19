@@ -3327,6 +3327,11 @@ class MemoryEngine(MemoryEngineInterface):
                 schema_getter=get_current_schema,
             )
 
+        from .sessions import SessionService
+
+        # Live conversations a client streams in, and the memory watcher that follows them.
+        self.sessions = SessionService(self)
+
         # Audit logger for feature usage tracking
         config = get_config()
         from ..config import _get_raw_config
@@ -5042,6 +5047,10 @@ class MemoryEngine(MemoryEngineInterface):
                     await self._handle_refresh_mental_model(task_dict)
                 elif task_type == "webhook_delivery":
                     await self._handle_webhook_delivery(task_dict)
+                elif task_type == "session_check":
+                    await self.sessions.run_check(task_dict)
+                elif task_type == "session_save":
+                    await self.sessions.run_save(task_dict)
                 else:
                     logger.error(f"Unknown task type: {task_type}")
                     # Don't retry unknown task types

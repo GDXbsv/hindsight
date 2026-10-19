@@ -21,7 +21,8 @@ from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from urllib.parse import quote, unquote
 
 import orjson
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi import Path as FastAPIPath
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
@@ -40,6 +41,14 @@ from hindsight_api.engine.audit import (
 )
 from hindsight_api.engine.document_history import DocumentHistoryResponse
 from hindsight_api.engine.llm_trace import LLMRequestListResponse, LLMRequestStatsResponse
+from hindsight_api.engine.sessions import SessionNotFoundError
+from hindsight_api.engine.sessions.models import (
+    SessionAppendRequest,
+    SessionAppendResponse,
+    SessionEventsResponse,
+    SessionListResponse,
+    SessionSummary,
+)
 from hindsight_api.extensions import AuthenticationError, BankWriteOperation, PrecheckOperation
 
 
@@ -8146,6 +8155,169 @@ def _register_routes(app: FastAPI):
             raise
         except Exception as e:
             raise _internal_error(e, f"/v1/default/banks/{bank_id}/documents/{document_id}/chunks")
+
+    @app.post(
+        "/v1/default/banks/{bank_id}/sessions/{session_id}/events",
+        response_model=SessionAppendResponse,
+        summary="Append to a live session",
+        description=(
+            "Send what happened in a live conversation since the last append, and get back the memory "
+            "watcher's notes. The session is created on its first append.\n\n"
+            "Safe to retry: each event carries the client's own `id`, and an event already stored is "
+            "skipped. Events are stored in the order sent, after the session's earlier events.\n\n"
+            "With `watch` on, each moment worth a check (a request, a plan, a command that changes "
+            "things, an edit, a failure) queues one reflect in the background. The append never waits "
+            "for it: its note comes back with a later append, or from `GET .../events`. `ack` is the "
+            "`seq` of the last note this client delivered; the response carries the notes after it."
+        ),
+        operation_id="append_session_events",
+        tags=["Sessions"],
+    )
+    async def api_append_session_events(
+        bank_id: str,
+        session_id: str = FastAPIPath(min_length=1, max_length=256),
+        request: SessionAppendRequest = Body(...),
+        request_context: RequestContext = Depends(get_request_context),
+    ):
+        try:
+            return await app.state.memory.sessions.append(bank_id, session_id, request, request_context=request_context)
+        except OperationValidationError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.reason)
+        except (AuthenticationError, HTTPException):
+            raise
+        except Exception as e:
+            raise _internal_error(e, f"/v1/default/banks/{bank_id}/sessions/{session_id}/events")
+
+    @app.get(
+        "/v1/default/banks/{bank_id}/sessions/{session_id}/events",
+        response_model=SessionEventsResponse,
+        summary="Read a session's log",
+        description=(
+            "The session's log after position `after`, oldest first: the client's events and the "
+            "watcher's checks and notes, in one order. Poll with `after` set to the last `seq` you saw "
+            "to follow the session live."
+        ),
+        operation_id="list_session_events",
+        tags=["Sessions"],
+    )
+    async def api_list_session_events(
+        bank_id: str,
+        session_id: str,
+        after: int = Query(default=0, ge=0, description="Return entries with a seq above this"),
+        limit: int = Query(default=200, ge=1, le=1000),
+        request_context: RequestContext = Depends(get_request_context),
+    ):
+        try:
+            return await app.state.memory.sessions.events(
+                bank_id, session_id, after=after, limit=limit, request_context=request_context
+            )
+        except SessionNotFoundError:
+            raise HTTPException(status_code=404, detail="Session not found")
+        except OperationValidationError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.reason)
+        except (AuthenticationError, HTTPException):
+            raise
+        except Exception as e:
+            raise _internal_error(e, f"/v1/default/banks/{bank_id}/sessions/{session_id}/events")
+
+    @app.get(
+        "/v1/default/banks/{bank_id}/sessions",
+        response_model=SessionListResponse,
+        summary="List sessions",
+        description="The bank's sessions, most recently active first.",
+        operation_id="list_sessions",
+        tags=["Sessions"],
+    )
+    async def api_list_sessions(
+        bank_id: str,
+        q: str | None = Query(default=None, description="Case-insensitive match on the session id or title"),
+        limit: int = Query(default=50, ge=0, le=500),
+        offset: int = Query(default=0, ge=0),
+        request_context: RequestContext = Depends(get_request_context),
+    ):
+        try:
+            return await app.state.memory.sessions.list(
+                bank_id, limit=limit, offset=offset, q=q, request_context=request_context
+            )
+        except OperationValidationError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.reason)
+        except (AuthenticationError, HTTPException):
+            raise
+        except Exception as e:
+            raise _internal_error(e, f"/v1/default/banks/{bank_id}/sessions")
+
+    @app.get(
+        "/v1/default/banks/{bank_id}/sessions/{session_id}",
+        response_model=SessionSummary,
+        summary="Get a session",
+        operation_id="get_session",
+        tags=["Sessions"],
+    )
+    async def api_get_session(
+        bank_id: str,
+        session_id: str,
+        request_context: RequestContext = Depends(get_request_context),
+    ):
+        try:
+            return await app.state.memory.sessions.get(bank_id, session_id, request_context=request_context)
+        except SessionNotFoundError:
+            raise HTTPException(status_code=404, detail="Session not found")
+        except OperationValidationError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.reason)
+        except (AuthenticationError, HTTPException):
+            raise
+        except Exception as e:
+            raise _internal_error(e, f"/v1/default/banks/{bank_id}/sessions/{session_id}")
+
+    @app.delete(
+        "/v1/default/banks/{bank_id}/sessions/{session_id}",
+        response_model=DeleteResponse,
+        summary="Delete a session",
+        description="Delete the session and its log. The document it saved into the bank stays (delete it as a "
+        "document); memories extracted from it are not touched.",
+        operation_id="delete_session",
+        tags=["Sessions"],
+    )
+    async def api_delete_session(
+        bank_id: str,
+        session_id: str,
+        request_context: RequestContext = Depends(get_request_context),
+    ):
+        try:
+            await app.state.memory.sessions.delete(bank_id, session_id, request_context=request_context)
+            return DeleteResponse(success=True, message=f"Session '{session_id}' deleted")
+        except SessionNotFoundError:
+            raise HTTPException(status_code=404, detail="Session not found")
+        except OperationValidationError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.reason)
+        except (AuthenticationError, HTTPException):
+            raise
+        except Exception as e:
+            raise _internal_error(e, f"/v1/default/banks/{bank_id}/sessions/{session_id}")
+
+    @app.post(
+        "/v1/default/banks/{bank_id}/sessions/{session_id}/close",
+        response_model=SessionSummary,
+        summary="Close a session",
+        description="Mark the session finished. A later append opens it again.",
+        operation_id="close_session",
+        tags=["Sessions"],
+    )
+    async def api_close_session(
+        bank_id: str,
+        session_id: str,
+        request_context: RequestContext = Depends(get_request_context),
+    ):
+        try:
+            return await app.state.memory.sessions.close(bank_id, session_id, request_context=request_context)
+        except SessionNotFoundError:
+            raise HTTPException(status_code=404, detail="Session not found")
+        except OperationValidationError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.reason)
+        except (AuthenticationError, HTTPException):
+            raise
+        except Exception as e:
+            raise _internal_error(e, f"/v1/default/banks/{bank_id}/sessions/{session_id}/close")
 
     @app.get(
         "/v1/default/banks/{bank_id}/documents/{document_id:path}/history",
