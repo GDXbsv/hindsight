@@ -100,6 +100,10 @@ enum Commands {
     #[command(subcommand)]
     Operation(OperationCommands),
 
+    /// Live sessions: list, follow, append, close, delete
+    #[command(subcommand)]
+    Session(SessionCommands),
+
     /// Manage mental models (user-curated summaries)
     #[command(subcommand)]
     MentalModel(MentalModelCommands),
@@ -1061,6 +1065,123 @@ enum TagCommands {
 }
 
 #[derive(Subcommand)]
+enum SessionCommands {
+    /// List a bank's sessions, most recently active first
+    List {
+        /// Bank ID
+        bank_id: String,
+
+        /// Match on the session id or title
+        #[arg(short = 'q', long)]
+        query: Option<String>,
+
+        /// Maximum number of results
+        #[arg(short = 'l', long, default_value = "50")]
+        limit: i64,
+
+        /// Offset for pagination
+        #[arg(short = 's', long, default_value = "0")]
+        offset: u64,
+    },
+
+    /// Show one session
+    Get {
+        /// Bank ID
+        bank_id: String,
+        /// Session ID
+        session_id: String,
+    },
+
+    /// Send events to a session (creating it), and print the notes it has for you
+    Append {
+        /// Bank ID
+        bank_id: String,
+        /// Session ID
+        session_id: String,
+
+        /// A JSON file holding an array of events (instead of one event from the flags)
+        #[arg(long)]
+        events_file: Option<String>,
+
+        /// The event's own id: sending it again stores nothing twice (default: a fresh one)
+        #[arg(long)]
+        id: Option<String>,
+
+        /// Who it came from: user, assistant, tool, system
+        #[arg(long, default_value = "user")]
+        role: String,
+
+        /// message, tool_call, tool_result, state, turn_end
+        #[arg(long, default_value = "message")]
+        kind: String,
+
+        /// What was said (or a tool's output)
+        #[arg(long)]
+        text: Option<String>,
+
+        /// The tool called (tool_call)
+        #[arg(long)]
+        tool: Option<String>,
+
+        /// Pairs a tool_result with its tool_call
+        #[arg(long)]
+        call_id: Option<String>,
+
+        /// Turn the memory watcher on for this session
+        #[arg(long)]
+        watch: bool,
+
+        /// When the conversation is saved: turns, close, off
+        #[arg(long)]
+        retain: Option<String>,
+
+        /// The session's title
+        #[arg(long)]
+        title: Option<String>,
+
+        /// The seq of the last note you delivered: only notes after it come back
+        #[arg(long)]
+        ack: Option<u64>,
+    },
+
+    /// Print a session's log; with --follow, keep printing as it happens
+    Events {
+        /// Bank ID
+        bank_id: String,
+        /// Session ID
+        session_id: String,
+
+        /// Start after this position
+        #[arg(long, default_value = "0")]
+        after: u64,
+
+        /// Entries per request
+        #[arg(short = 'l', long, default_value = "200")]
+        limit: u64,
+
+        /// Keep following the session until it is closed
+        #[arg(short = 'f', long)]
+        follow: bool,
+    },
+
+    /// Close a session (saves what is not saved yet)
+    Close {
+        /// Bank ID
+        bank_id: String,
+        /// Session ID
+        session_id: String,
+    },
+
+    /// Delete a session and its log (the document it saved stays)
+    Delete {
+        /// Bank ID
+        bank_id: String,
+        /// Session ID
+        session_id: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum ChunkCommands {
     /// Get a specific chunk by ID
     Get {
@@ -1966,6 +2087,78 @@ fn run() -> Result<()> {
                 verbose,
                 output_format,
             ),
+        },
+
+        // Session commands
+        Commands::Session(session_cmd) => match session_cmd {
+            SessionCommands::List {
+                bank_id,
+                query,
+                limit,
+                offset,
+            } => commands::session::list(&client, &bank_id, query, limit, offset, output_format),
+            SessionCommands::Get {
+                bank_id,
+                session_id,
+            } => commands::session::get(&client, &bank_id, &session_id, output_format),
+            SessionCommands::Append {
+                bank_id,
+                session_id,
+                events_file,
+                id,
+                role,
+                kind,
+                text,
+                tool,
+                call_id,
+                watch,
+                retain,
+                title,
+                ack,
+            } => commands::session::append(
+                &client,
+                &bank_id,
+                &session_id,
+                commands::session::EventArgs {
+                    events_file,
+                    id,
+                    role,
+                    kind,
+                    text,
+                    tool,
+                    call_id,
+                },
+                commands::session::SessionArgs {
+                    watch,
+                    retain,
+                    title,
+                },
+                ack,
+                output_format,
+            ),
+            SessionCommands::Events {
+                bank_id,
+                session_id,
+                after,
+                limit,
+                follow,
+            } => commands::session::events(
+                &client,
+                &bank_id,
+                &session_id,
+                after,
+                limit,
+                follow,
+                output_format,
+            ),
+            SessionCommands::Close {
+                bank_id,
+                session_id,
+            } => commands::session::close(&client, &bank_id, &session_id, output_format),
+            SessionCommands::Delete {
+                bank_id,
+                session_id,
+            } => commands::session::delete(&client, &bank_id, &session_id, output_format),
         },
 
         // Chunk commands
