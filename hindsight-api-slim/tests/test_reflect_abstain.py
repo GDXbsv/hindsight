@@ -290,32 +290,38 @@ async def test_an_unreadable_answer_is_silence():
 
 
 @pytest.mark.asyncio
-async def test_a_settled_pick_writes_the_answer_alone_and_keeps_it():
-    """When the decision model has settled it, the LLM writes only the answer (no check, no verdict),
-    and its text stands."""
-    provider = _ScriptedProvider([])
-    formats: list[object] = []
-    systems: list[str] = []
+async def test_a_settled_pick_writes_the_answer_then_whether_it_applies():
+    """When the decision model has settled it, the LLM writes the answer (no check first) and then labels
+    it: an answer it labels as not applying ("Nothing conflicts.") is silence, not a note."""
+    for reply, kept in (
+        ({"answer": "Memory suffixes are binary: K=1024.", "applies": True}, "Memory suffixes are binary: K=1024."),
+        ({"answer": "Nothing conflicts.", "applies": False}, None),
+    ):
+        provider = _ScriptedProvider([])
+        formats: list[object] = []
+        systems: list[str] = []
 
-    def answer(**k):
-        prompt = k["messages"][-1]["content"]
-        if "## Memories" not in prompt:
-            return LLMCallResult(content=prompt, usage=TokenUsage(input_tokens=1, output_tokens=1))
-        provider.answer_prompts.append(prompt)
-        formats.append(k.get("response_format"))
-        systems.append(k["messages"][0]["content"])
-        reply = {"answer": "Memory suffixes are binary: K=1024."}
-        return LLMCallResult(content=json.dumps(reply), usage=TokenUsage(input_tokens=1, output_tokens=1))
+        def answer(reply=reply, provider=provider, formats=formats, systems=systems, **k):
+            prompt = k["messages"][-1]["content"]
+            if "## Memories" not in prompt:
+                return LLMCallResult(content=prompt, usage=TokenUsage(input_tokens=1, output_tokens=1))
+            provider.answer_prompts.append(prompt)
+            formats.append(k.get("response_format"))
+            systems.append(k["messages"][0]["content"])
+            return LLMCallResult(content=json.dumps(reply), usage=TokenUsage(input_tokens=1, output_tokens=1))
 
-    provider.call = AsyncMock(side_effect=answer)  # type: ignore[method-assign]
-    pick = AsyncMock(return_value=EvidencePick(none=0.02, candidates=[0.97, 0.01]))
+        provider.call = AsyncMock(side_effect=answer)  # type: ignore[method-assign]
+        pick = AsyncMock(return_value=EvidencePick(none=0.02, candidates=[0.97, 0.01]))
 
-    result = await _reflect(provider, pick=pick)
+        result = await _reflect(provider, pick=pick)
 
-    assert "already judged to answer the question" in provider.answer_prompts[0]
-    assert formats == [SettledAbstainAnswer]
-    assert "`check`" not in systems[0] and "`applies`" not in systems[0]
-    assert not result.abstained and result.text == "Memory suffixes are binary: K=1024."
+        assert "already judged to answer the question" in provider.answer_prompts[0]
+        assert formats == [SettledAbstainAnswer]
+        assert "`check`" not in systems[0] and "Then `applies`" in systems[0]
+        if kept:
+            assert not result.abstained and result.text == kept
+        else:
+            assert result.abstained and result.text == ""
 
 
 @pytest.mark.asyncio

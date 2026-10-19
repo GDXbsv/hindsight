@@ -1189,7 +1189,7 @@ async def _run_reflect_agent_inner(
             settled=settled,
         )
         answer = reply.answer.strip()
-        if (not reply.applies and not settled) or answer.strip("\"'`.*").upper() in ("", _NOTHING_TO_SEARCH):
+        if not reply.applies or answer.strip("\"'`.*").upper() in ("", _NOTHING_TO_SEARCH):
             return _abstained(iterations_completed)
         logger.info(f"[REFLECT {reflect_id}] Answered from {len(memories)} picked memory lines.")
         return ReflectAgentResult(
@@ -2722,7 +2722,7 @@ def _decode_json_argument(raw: str, finish_reason: str | None, field: str) -> An
 def _abstain_answer_from(raw: Any, *, settled: bool = False) -> AbstainAnswer:
     """The structured abstain answer; an unreadable reply is silence, never a guessed note.
 
-    ``settled``: the reply is a ``SettledAbstainAnswer`` (the answer alone), read as one that applies.
+    ``settled``: the reply is a ``SettledAbstainAnswer`` (the answer, then whether it applies).
     """
     model: type[BaseModel] = SettledAbstainAnswer if settled else AbstainAnswer
     try:
@@ -2736,7 +2736,7 @@ def _abstain_answer_from(raw: Any, *, settled: bool = False) -> AbstainAnswer:
         logger.warning(f"Abstain answer did not parse, treating it as nothing to say: {str(raw)[:200]!r}")
         return AbstainAnswer(applies=False)
     if isinstance(parsed, SettledAbstainAnswer):
-        return AbstainAnswer(applies=True, answer=parsed.answer)
+        return AbstainAnswer(applies=parsed.applies, answer=parsed.answer)
     assert isinstance(parsed, AbstainAnswer)
     return parsed
 

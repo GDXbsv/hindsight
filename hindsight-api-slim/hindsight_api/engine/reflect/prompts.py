@@ -1178,9 +1178,8 @@ _ABSTAIN_ANSWER_DECIDE = """- Write `check` first: hold each rule and value the 
 - Otherwise `applies` is true and `answer` answers directly, in the form the question asks for, copying exact values and literals verbatim."""
 
 # A settled pick (see ``build_abstain_answer_prompt``) writes only ``answer``: no check, no verdict to read.
-_ABSTAIN_ANSWER_SETTLED = (
-    """- `answer` answers directly, in the form the question asks for, copying exact values and literals verbatim."""
-)
+_ABSTAIN_ANSWER_SETTLED = """- `answer` answers directly, in the form the question asks for, copying exact values and literals verbatim.
+- Then `applies`: false only if the answer you wrote says the memories do not apply (nothing conflicts, no decision applies, the answer is no)."""
 
 _ABSTAIN_ANSWER_TAIL = """- No preamble, no reasoning, no follow-up questions: the reader acts on any text you write.
 - Never write memory, document or REF-ID identifiers ("chat:session-01", "git:ab12"): the reader cannot look them up, and the caller shows the sources itself."""

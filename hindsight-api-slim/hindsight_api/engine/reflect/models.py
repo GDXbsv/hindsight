@@ -155,10 +155,19 @@ class AbstainAnswer(BaseModel):
 
 
 class SettledAbstainAnswer(BaseModel):
-    """The answer alone, for a pick the decision model was sure of (``settled``): its ``check`` and
-    ``applies`` are not read there, and writing them first delayed the watcher's heads-up."""
+    """The answer, for a pick the decision model was sure of (``settled``), then whether it applies.
+
+    No ``check``: writing it first delayed the watcher's heads-up. ``applies`` comes after the answer,
+    so it labels what was written instead of deciding it: without it a settled writer could answer
+    "Nothing conflicts." and the watcher delivered that as a note.
+    """
 
     answer: str = Field(description="The answer.")
+    applies: bool = Field(
+        default=True,
+        description="False when the answer you wrote says the memories do not apply: nothing conflicts, "
+        "no decision applies, or the answer is no.",
+    )
 
 
 class ReflectAgentResult(BaseModel):
