@@ -6507,6 +6507,421 @@ export type RunSettingModel = {
 };
 
 /**
+ * SessionAppendRequest
+ */
+export type SessionAppendRequest = {
+  /**
+   * Events
+   */
+  events?: Array<SessionEventIn>;
+  /**
+   * Ack
+   *
+   * The `seq` of the last note this client delivered. The response carries the notes after it. Omit it to get every note the session has not had acknowledged.
+   */
+  ack?: number | null;
+  session?: SessionOptions | null;
+};
+
+/**
+ * SessionAppendResponse
+ */
+export type SessionAppendResponse = {
+  /**
+   * Session Id
+   */
+  session_id: string;
+  /**
+   * Accepted
+   *
+   * Events stored by this append.
+   */
+  accepted: number;
+  /**
+   * Duplicates
+   *
+   * Events already stored, by their id.
+   */
+  duplicates: number;
+  /**
+   * Last Seq
+   *
+   * The session log's last position.
+   */
+  last_seq: number;
+  /**
+   * Notes
+   *
+   * Notes after `ack`, oldest first.
+   */
+  notes: Array<SessionNote>;
+  /**
+   * Checking
+   *
+   * A watcher check is queued or running: another note may still come.
+   */
+  checking: boolean;
+};
+
+/**
+ * SessionEvent
+ */
+export type SessionEvent = {
+  /**
+   * Seq
+   */
+  seq: number;
+  /**
+   * Event Id
+   */
+  event_id: string;
+  /**
+   * Source
+   *
+   * `client`: an event the client sent. `hindsight`: Hindsight's own entry: a watcher `check`, a `note`, or a `save` of the conversation into its document.
+   */
+  source: "client" | "hindsight";
+  /**
+   * Kind
+   */
+  kind: string;
+  /**
+   * Ts
+   */
+  ts?: string | null;
+  /**
+   * Created At
+   */
+  created_at: string;
+  /**
+   * Payload
+   */
+  payload: {
+    [key: string]: unknown;
+  };
+};
+
+/**
+ * SessionEventIn
+ *
+ * One thing that happened in the conversation, as the client saw it.
+ */
+export type SessionEventIn = {
+  /**
+   * Id
+   *
+   * The client's id for this event, unique in the session. Sending it again is a no-op: an append that is retried after a lost response stores nothing twice.
+   */
+  id: string;
+  /**
+   * Role
+   *
+   * Who it came from: the user, the assistant, a tool, or the system.
+   */
+  role: "user" | "assistant" | "tool" | "system";
+  /**
+   * Kind
+   *
+   * `message`: something said. `tool_call`: the assistant calling a tool (`tool`, `input`, `call_id`). `tool_result`: what the tool returned (`call_id`, `text`, `is_error`). `state`: a snapshot of the work, not said by anyone (`data`, e.g. `{diff}` for a coding agent's change so far). `turn_end`: the assistant finished its turn.
+   */
+  kind?: "message" | "tool_call" | "tool_result" | "state" | "turn_end";
+  /**
+   * Text
+   */
+  text?: string | null;
+  /**
+   * Tool
+   */
+  tool?: string | null;
+  /**
+   * Call Id
+   */
+  call_id?: string | null;
+  /**
+   * Input
+   */
+  input?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Is Error
+   */
+  is_error?: boolean;
+  /**
+   * Data
+   */
+  data?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Ts
+   *
+   * When it happened, by the client's clock.
+   */
+  ts?: string | null;
+};
+
+/**
+ * SessionEventsResponse
+ */
+export type SessionEventsResponse = {
+  /**
+   * Items
+   */
+  items: Array<SessionEvent>;
+  /**
+   * Last Seq
+   *
+   * The log's last position now: poll again with `after` set to it.
+   */
+  last_seq: number;
+  /**
+   * Status
+   */
+  status: string;
+  /**
+   * Checking
+   */
+  checking: boolean;
+};
+
+/**
+ * SessionListResponse
+ */
+export type SessionListResponse = {
+  /**
+   * Items
+   */
+  items: Array<SessionSummary>;
+  /**
+   * Total
+   */
+  total: number;
+  /**
+   * Limit
+   */
+  limit: number;
+  /**
+   * Offset
+   */
+  offset: number;
+};
+
+/**
+ * SessionNote
+ */
+export type SessionNote = {
+  /**
+   * Seq
+   */
+  seq: number;
+  /**
+   * Text
+   */
+  text: string;
+  /**
+   * Trigger
+   */
+  trigger: string;
+  /**
+   * Memory Ids
+   */
+  memory_ids?: Array<string>;
+  source?: SessionNoteSource | null;
+  /**
+   * Created At
+   */
+  created_at: string;
+};
+
+/**
+ * SessionNoteSource
+ */
+export type SessionNoteSource = {
+  /**
+   * Document Id
+   */
+  document_id: string;
+  /**
+   * Quote
+   *
+   * The source's own sentence closest to the note, verbatim.
+   */
+  quote?: string;
+  /**
+   * Mentioned At
+   */
+  mentioned_at?: string | null;
+  /**
+   * Metadata
+   */
+  metadata?: {
+    [key: string]: unknown;
+  };
+};
+
+/**
+ * SessionOptions
+ *
+ * How the session is set up. Applied when an append creates the session; later appends that
+ * carry options update the fields they set.
+ */
+export type SessionOptions = {
+  /**
+   * Title
+   */
+  title?: string | null;
+  /**
+   * Source
+   *
+   * What is sending the session, e.g. `claude-code`.
+   */
+  source?: string | null;
+  /**
+   * Document Id
+   *
+   * The document the conversation is saved into. Defaults to `session:<session_id>`. Fixed once the session exists.
+   */
+  document_id?: string | null;
+  /**
+   * Watch
+   *
+   * Whether the memory watcher follows the session and may send notes back. Off by default.
+   */
+  watch?: boolean | null;
+  /**
+   * Retain
+   *
+   * When the conversation is saved into its document: at the end of each turn (`turns`, the default), only when the session closes (`close`), or never (`off`).
+   */
+  retain?: "turns" | "close" | "off" | null;
+  /**
+   * Tags
+   *
+   * Tags the saved document gets.
+   */
+  tags?: Array<string> | null;
+  /**
+   * Context
+   *
+   * How extraction should read the saved conversation (who is speaking). A generic user/assistant description by default.
+   */
+  context?: string | null;
+  /**
+   * Strategy
+   *
+   * The retain strategy saves use.
+   */
+  strategy?: string | null;
+  /**
+   * Observation Scopes
+   *
+   * How observations built from the saved conversation are scoped, as on retain. The bank's default when unset.
+   */
+  observation_scopes?:
+    | "per_tag"
+    | "combined"
+    | "all_combinations"
+    | "shared"
+    | Array<Array<string>>
+    | null;
+  /**
+   * Metadata
+   */
+  metadata?: {
+    [key: string]: string;
+  } | null;
+};
+
+/**
+ * SessionSummary
+ */
+export type SessionSummary = {
+  /**
+   * Session Id
+   */
+  session_id: string;
+  /**
+   * Document Id
+   */
+  document_id: string;
+  /**
+   * Title
+   */
+  title?: string | null;
+  /**
+   * Source
+   */
+  source?: string | null;
+  /**
+   * Status
+   */
+  status: string;
+  /**
+   * Watch
+   */
+  watch: boolean;
+  /**
+   * Retain
+   */
+  retain: string;
+  /**
+   * Event Count
+   */
+  event_count: number;
+  /**
+   * Check Count
+   */
+  check_count: number;
+  /**
+   * Note Count
+   */
+  note_count: number;
+  /**
+   * Delivered Count
+   *
+   * Notes the client acknowledged delivering to the agent.
+   */
+  delivered_count: number;
+  /**
+   * Last Seq
+   */
+  last_seq: number;
+  /**
+   * Saved Seq
+   */
+  saved_seq: number;
+  /**
+   * Acked Seq
+   */
+  acked_seq: number;
+  /**
+   * Checking
+   */
+  checking: boolean;
+  /**
+   * Created At
+   */
+  created_at: string;
+  /**
+   * Updated At
+   */
+  updated_at: string;
+  /**
+   * Last Event At
+   *
+   * When the client last sent an event.
+   */
+  last_event_at?: string | null;
+  /**
+   * Metadata
+   */
+  metadata?: {
+    [key: string]: unknown;
+  };
+};
+
+/**
  * SetBankAliasPrimaryRequest
  *
  * Request model for showing (or no longer showing) an alias in place of the bank id.
@@ -9411,6 +9826,270 @@ export type ListDocumentChunksResponses = {
 
 export type ListDocumentChunksResponse =
   ListDocumentChunksResponses[keyof ListDocumentChunksResponses];
+
+export type ListSessionEventsData = {
+  body?: never;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path: {
+    /**
+     * Bank Id
+     */
+    bank_id: string;
+    /**
+     * Session Id
+     */
+    session_id: string;
+  };
+  query?: {
+    /**
+     * After
+     *
+     * Return entries with a seq above this
+     */
+    after?: number;
+    /**
+     * Limit
+     */
+    limit?: number;
+  };
+  url: "/v1/default/banks/{bank_id}/sessions/{session_id}/events";
+};
+
+export type ListSessionEventsErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type ListSessionEventsError = ListSessionEventsErrors[keyof ListSessionEventsErrors];
+
+export type ListSessionEventsResponses = {
+  /**
+   * Successful Response
+   */
+  200: SessionEventsResponse;
+};
+
+export type ListSessionEventsResponse =
+  ListSessionEventsResponses[keyof ListSessionEventsResponses];
+
+export type AppendSessionEventsData = {
+  body: SessionAppendRequest;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path: {
+    /**
+     * Bank Id
+     */
+    bank_id: string;
+    /**
+     * Session Id
+     */
+    session_id: string;
+  };
+  query?: never;
+  url: "/v1/default/banks/{bank_id}/sessions/{session_id}/events";
+};
+
+export type AppendSessionEventsErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type AppendSessionEventsError = AppendSessionEventsErrors[keyof AppendSessionEventsErrors];
+
+export type AppendSessionEventsResponses = {
+  /**
+   * Successful Response
+   */
+  200: SessionAppendResponse;
+};
+
+export type AppendSessionEventsResponse =
+  AppendSessionEventsResponses[keyof AppendSessionEventsResponses];
+
+export type ListSessionsData = {
+  body?: never;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path: {
+    /**
+     * Bank Id
+     */
+    bank_id: string;
+  };
+  query?: {
+    /**
+     * Q
+     *
+     * Case-insensitive match on the session id or title
+     */
+    q?: string | null;
+    /**
+     * Limit
+     */
+    limit?: number;
+    /**
+     * Offset
+     */
+    offset?: number;
+  };
+  url: "/v1/default/banks/{bank_id}/sessions";
+};
+
+export type ListSessionsErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type ListSessionsError = ListSessionsErrors[keyof ListSessionsErrors];
+
+export type ListSessionsResponses = {
+  /**
+   * Successful Response
+   */
+  200: SessionListResponse;
+};
+
+export type ListSessionsResponse = ListSessionsResponses[keyof ListSessionsResponses];
+
+export type DeleteSessionData = {
+  body?: never;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path: {
+    /**
+     * Bank Id
+     */
+    bank_id: string;
+    /**
+     * Session Id
+     */
+    session_id: string;
+  };
+  query?: never;
+  url: "/v1/default/banks/{bank_id}/sessions/{session_id}";
+};
+
+export type DeleteSessionErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type DeleteSessionError = DeleteSessionErrors[keyof DeleteSessionErrors];
+
+export type DeleteSessionResponses = {
+  /**
+   * Successful Response
+   */
+  200: DeleteResponse;
+};
+
+export type DeleteSessionResponse = DeleteSessionResponses[keyof DeleteSessionResponses];
+
+export type GetSessionData = {
+  body?: never;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path: {
+    /**
+     * Bank Id
+     */
+    bank_id: string;
+    /**
+     * Session Id
+     */
+    session_id: string;
+  };
+  query?: never;
+  url: "/v1/default/banks/{bank_id}/sessions/{session_id}";
+};
+
+export type GetSessionErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type GetSessionError = GetSessionErrors[keyof GetSessionErrors];
+
+export type GetSessionResponses = {
+  /**
+   * Successful Response
+   */
+  200: SessionSummary;
+};
+
+export type GetSessionResponse = GetSessionResponses[keyof GetSessionResponses];
+
+export type CloseSessionData = {
+  body?: never;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path: {
+    /**
+     * Bank Id
+     */
+    bank_id: string;
+    /**
+     * Session Id
+     */
+    session_id: string;
+  };
+  query?: never;
+  url: "/v1/default/banks/{bank_id}/sessions/{session_id}/close";
+};
+
+export type CloseSessionErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type CloseSessionError = CloseSessionErrors[keyof CloseSessionErrors];
+
+export type CloseSessionResponses = {
+  /**
+   * Successful Response
+   */
+  200: SessionSummary;
+};
+
+export type CloseSessionResponse = CloseSessionResponses[keyof CloseSessionResponses];
 
 export type GetDocumentHistoryData = {
   body?: never;

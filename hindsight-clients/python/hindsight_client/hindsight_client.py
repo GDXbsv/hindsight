@@ -59,6 +59,7 @@ from hindsight_client_api.api import (
     mental_models_api,
     monitoring_api,
     operations_api,
+    sessions_api,
     webhooks_api,
 )
 from hindsight_client_api.models import (
@@ -256,6 +257,7 @@ class Hindsight:
         - ``client.mental_models``: Mental model management (MentalModelsApi)
         - ``client.directives``: Directive management (DirectivesApi)
         - ``client.operations``: Async operation tracking (OperationsApi)
+        - ``client.sessions``: Live sessions and the memory watcher's notes (SessionsApi)
         - ``client.webhooks``: Webhook management (WebhooksApi)
         - ``client.files``: File upload (FilesApi)
         - ``client.monitoring``: Health/version checks (MonitoringApi)
@@ -312,6 +314,7 @@ class Hindsight:
         self._documents_api = documents_api.DocumentsApi(self._api_client)
         self._entities_api = entities_api.EntitiesApi(self._api_client)
         self._operations_api = operations_api.OperationsApi(self._api_client)
+        self._sessions_api = sessions_api.SessionsApi(self._api_client)
         self._webhooks_api = webhooks_api.WebhooksApi(self._api_client)
         self._monitoring_api = monitoring_api.MonitoringApi(self._api_client)
         self._document_transfer_api = document_transfer_api.DocumentTransferApi(self._api_client)
@@ -395,6 +398,11 @@ class Hindsight:
     def operations(self) -> operations_api.OperationsApi:
         """Low-level Operations API — get status, list, cancel, retry async operations."""
         return self._operations_api
+
+    @property
+    def sessions(self) -> sessions_api.SessionsApi:
+        """Low-level Sessions API — stream a live conversation in, get the memory watcher's notes back."""
+        return self._sessions_api
 
     @property
     def webhooks(self) -> webhooks_api.WebhooksApi:

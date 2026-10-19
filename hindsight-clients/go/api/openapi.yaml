@@ -2757,6 +2757,334 @@ paths:
       summary: List document chunks
       tags:
       - Documents
+  /v1/default/banks/{bank_id}/sessions/{session_id}/events:
+    get:
+      description: "The session's log after position `after`, oldest first: the client's\
+        \ events and the watcher's checks and notes, in one order. Poll with `after`\
+        \ set to the last `seq` you saw to follow the session live."
+      operationId: list_session_events
+      parameters:
+      - explode: false
+        in: path
+        name: bank_id
+        required: true
+        schema:
+          title: Bank Id
+          type: string
+        style: simple
+      - explode: false
+        in: path
+        name: session_id
+        required: true
+        schema:
+          title: Session Id
+          type: string
+        style: simple
+      - description: Return entries with a seq above this
+        explode: true
+        in: query
+        name: after
+        required: false
+        schema:
+          default: 0
+          description: Return entries with a seq above this
+          minimum: 0
+          title: After
+          type: integer
+        style: form
+      - explode: true
+        in: query
+        name: limit
+        required: false
+        schema:
+          default: 200
+          maximum: 1000
+          minimum: 1
+          title: Limit
+          type: integer
+        style: form
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionEventsResponse'
+          description: Successful Response
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Read a session's log
+      tags:
+      - Sessions
+    post:
+      description: |-
+        Send what happened in a live conversation since the last append, and get back the memory watcher's notes. The session is created on its first append.
+
+        Safe to retry: each event carries the client's own `id`, and an event already stored is skipped. Events are stored in the order sent, after the session's earlier events.
+
+        With `watch` on, each moment worth a check (a request, a plan, a command that changes things, an edit, a failure) queues one reflect in the background. The append never waits for it: its note comes back with a later append, or from `GET .../events`. `ack` is the `seq` of the last note this client delivered; the response carries the notes after it.
+      operationId: append_session_events
+      parameters:
+      - explode: false
+        in: path
+        name: bank_id
+        required: true
+        schema:
+          title: Bank Id
+          type: string
+        style: simple
+      - explode: false
+        in: path
+        name: session_id
+        required: true
+        schema:
+          maxLength: 256
+          minLength: 1
+          title: Session Id
+          type: string
+        style: simple
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionAppendRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionAppendResponse'
+          description: Successful Response
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Append to a live session
+      tags:
+      - Sessions
+  /v1/default/banks/{bank_id}/sessions:
+    get:
+      description: "The bank's sessions, most recently active first."
+      operationId: list_sessions
+      parameters:
+      - explode: false
+        in: path
+        name: bank_id
+        required: true
+        schema:
+          title: Bank Id
+          type: string
+        style: simple
+      - description: Case-insensitive match on the session id or title
+        explode: true
+        in: query
+        name: q
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: form
+      - explode: true
+        in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          maximum: 500
+          minimum: 0
+          title: Limit
+          type: integer
+        style: form
+      - explode: true
+        in: query
+        name: offset
+        required: false
+        schema:
+          default: 0
+          minimum: 0
+          title: Offset
+          type: integer
+        style: form
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionListResponse'
+          description: Successful Response
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: List sessions
+      tags:
+      - Sessions
+  /v1/default/banks/{bank_id}/sessions/{session_id}:
+    delete:
+      description: Delete the session and its log. The document it saved into the
+        bank stays (delete it as a document); memories extracted from it are not touched.
+      operationId: delete_session
+      parameters:
+      - explode: false
+        in: path
+        name: bank_id
+        required: true
+        schema:
+          title: Bank Id
+          type: string
+        style: simple
+      - explode: false
+        in: path
+        name: session_id
+        required: true
+        schema:
+          title: Session Id
+          type: string
+        style: simple
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResponse'
+          description: Successful Response
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Delete a session
+      tags:
+      - Sessions
+    get:
+      operationId: get_session
+      parameters:
+      - explode: false
+        in: path
+        name: bank_id
+        required: true
+        schema:
+          title: Bank Id
+          type: string
+        style: simple
+      - explode: false
+        in: path
+        name: session_id
+        required: true
+        schema:
+          title: Session Id
+          type: string
+        style: simple
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionSummary'
+          description: Successful Response
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Get a session
+      tags:
+      - Sessions
+  /v1/default/banks/{bank_id}/sessions/{session_id}/close:
+    post:
+      description: Mark the session finished. A later append opens it again.
+      operationId: close_session
+      parameters:
+      - explode: false
+        in: path
+        name: bank_id
+        required: true
+        schema:
+          title: Bank Id
+          type: string
+        style: simple
+      - explode: false
+        in: path
+        name: session_id
+        required: true
+        schema:
+          title: Session Id
+          type: string
+        style: simple
+      - explode: false
+        in: header
+        name: authorization
+        required: false
+        schema:
+          nullable: true
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionSummary'
+          description: Successful Response
+        "422":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Close a session
+      tags:
+      - Sessions
   /v1/default/banks/{bank_id}/documents/{document_id}/history:
     get:
       description: |-
@@ -12904,6 +13232,632 @@ components:
       - field
       - kind
       title: RunSettingModel
+    SessionAppendRequest:
+      example:
+        session:
+          metadata:
+            key: metadata
+          watch: true
+          retain: turns
+          context: context
+          observation_scopes: per_tag
+          source: source
+          title: title
+          document_id: document_id
+          strategy: strategy
+          tags:
+          - tags
+          - tags
+        ack: 0
+        events:
+        - input:
+            key: ""
+          role: user
+          data:
+            key: ""
+          kind: message
+          is_error: false
+          id: id
+          text: text
+          tool: tool
+          call_id: call_id
+          ts: 2000-01-23T04:56:07.000+00:00
+        - input:
+            key: ""
+          role: user
+          data:
+            key: ""
+          kind: message
+          is_error: false
+          id: id
+          text: text
+          tool: tool
+          call_id: call_id
+          ts: 2000-01-23T04:56:07.000+00:00
+        - input:
+            key: ""
+          role: user
+          data:
+            key: ""
+          kind: message
+          is_error: false
+          id: id
+          text: text
+          tool: tool
+          call_id: call_id
+          ts: 2000-01-23T04:56:07.000+00:00
+        - input:
+            key: ""
+          role: user
+          data:
+            key: ""
+          kind: message
+          is_error: false
+          id: id
+          text: text
+          tool: tool
+          call_id: call_id
+          ts: 2000-01-23T04:56:07.000+00:00
+        - input:
+            key: ""
+          role: user
+          data:
+            key: ""
+          kind: message
+          is_error: false
+          id: id
+          text: text
+          tool: tool
+          call_id: call_id
+          ts: 2000-01-23T04:56:07.000+00:00
+      properties:
+        events:
+          items:
+            $ref: '#/components/schemas/SessionEventIn'
+          maxItems: 500
+          type: array
+        ack:
+          minimum: 0.0
+          nullable: true
+          type: integer
+        session:
+          $ref: '#/components/schemas/SessionOptions'
+      title: SessionAppendRequest
+    SessionAppendResponse:
+      example:
+        duplicates: 6
+        checking: true
+        notes:
+        - created_at: 2000-01-23T04:56:07.000+00:00
+          text: text
+          trigger: trigger
+          source:
+            metadata:
+              key: ""
+            quote: ""
+            mentioned_at: 2000-01-23T04:56:07.000+00:00
+            document_id: document_id
+          memory_ids:
+          - memory_ids
+          - memory_ids
+          seq: 5
+        - created_at: 2000-01-23T04:56:07.000+00:00
+          text: text
+          trigger: trigger
+          source:
+            metadata:
+              key: ""
+            quote: ""
+            mentioned_at: 2000-01-23T04:56:07.000+00:00
+            document_id: document_id
+          memory_ids:
+          - memory_ids
+          - memory_ids
+          seq: 5
+        session_id: session_id
+        accepted: 0
+        last_seq: 1
+      properties:
+        session_id:
+          title: Session Id
+          type: string
+        accepted:
+          description: Events stored by this append.
+          title: Accepted
+          type: integer
+        duplicates:
+          description: "Events already stored, by their id."
+          title: Duplicates
+          type: integer
+        last_seq:
+          description: The session log's last position.
+          title: Last Seq
+          type: integer
+        notes:
+          description: "Notes after `ack`, oldest first."
+          items:
+            $ref: '#/components/schemas/SessionNote'
+          type: array
+        checking:
+          description: "A watcher check is queued or running: another note may still\
+            \ come."
+          title: Checking
+          type: boolean
+      required:
+      - accepted
+      - checking
+      - duplicates
+      - last_seq
+      - notes
+      - session_id
+      title: SessionAppendResponse
+    SessionEvent:
+      example:
+        event_id: event_id
+        payload:
+          key: ""
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        source: client
+        seq: 0
+        ts: 2000-01-23T04:56:07.000+00:00
+      properties:
+        seq:
+          title: Seq
+          type: integer
+        event_id:
+          title: Event Id
+          type: string
+        source:
+          description: "`client`: an event the client sent. `hindsight`: Hindsight's\
+            \ own entry: a watcher `check`, a `note`, or a `save` of the conversation\
+            \ into its document."
+          enum:
+          - client
+          - hindsight
+          title: Source
+          type: string
+        kind:
+          title: Kind
+          type: string
+        ts:
+          format: date-time
+          nullable: true
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        payload:
+          additionalProperties: {}
+          title: Payload
+      required:
+      - created_at
+      - event_id
+      - kind
+      - payload
+      - seq
+      - source
+      title: SessionEvent
+    SessionEventIn:
+      description: "One thing that happened in the conversation, as the client saw\
+        \ it."
+      example:
+        input:
+          key: ""
+        role: user
+        data:
+          key: ""
+        kind: message
+        is_error: false
+        id: id
+        text: text
+        tool: tool
+        call_id: call_id
+        ts: 2000-01-23T04:56:07.000+00:00
+      properties:
+        id:
+          description: "The client's id for this event, unique in the session. Sending\
+            \ it again is a no-op: an append that is retried after a lost response\
+            \ stores nothing twice."
+          maxLength: 256
+          minLength: 1
+          title: Id
+          type: string
+        role:
+          description: "Who it came from: the user, the assistant, a tool, or the\
+            \ system."
+          enum:
+          - user
+          - assistant
+          - tool
+          - system
+          title: Role
+          type: string
+        kind:
+          default: message
+          description: "`message`: something said. `tool_call`: the assistant calling\
+            \ a tool (`tool`, `input`, `call_id`). `tool_result`: what the tool returned\
+            \ (`call_id`, `text`, `is_error`). `state`: a snapshot of the work, not\
+            \ said by anyone (`data`, e.g. `{diff}` for a coding agent's change so\
+            \ far). `turn_end`: the assistant finished its turn."
+          enum:
+          - message
+          - tool_call
+          - tool_result
+          - state
+          - turn_end
+          title: Kind
+          type: string
+        text:
+          maxLength: 100000
+          nullable: true
+          type: string
+        tool:
+          maxLength: 256
+          nullable: true
+          type: string
+        call_id:
+          maxLength: 256
+          nullable: true
+          type: string
+        input:
+          additionalProperties: {}
+          nullable: true
+        is_error:
+          default: false
+          title: Is Error
+          type: boolean
+        data:
+          additionalProperties: {}
+          nullable: true
+        ts:
+          format: date-time
+          nullable: true
+          type: string
+      required:
+      - id
+      - role
+      title: SessionEventIn
+    SessionEventsResponse:
+      example:
+        checking: true
+        items:
+        - event_id: event_id
+          payload:
+            key: ""
+          kind: kind
+          created_at: 2000-01-23T04:56:07.000+00:00
+          source: client
+          seq: 0
+          ts: 2000-01-23T04:56:07.000+00:00
+        - event_id: event_id
+          payload:
+            key: ""
+          kind: kind
+          created_at: 2000-01-23T04:56:07.000+00:00
+          source: client
+          seq: 0
+          ts: 2000-01-23T04:56:07.000+00:00
+        last_seq: 6
+        status: status
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/SessionEvent'
+          type: array
+        last_seq:
+          description: "The log's last position now: poll again with `after` set to\
+            \ it."
+          title: Last Seq
+          type: integer
+        status:
+          title: Status
+          type: string
+        checking:
+          title: Checking
+          type: boolean
+      required:
+      - checking
+      - items
+      - last_seq
+      - status
+      title: SessionEventsResponse
+    SessionListResponse:
+      example:
+        total: 9
+        offset: 2
+        limit: 3
+        items:
+        - check_count: 6
+          checking: true
+          metadata:
+            key: ""
+          event_count: 0
+          retain: retain
+          session_id: session_id
+          created_at: 2000-01-23T04:56:07.000+00:00
+          source: source
+          document_id: document_id
+          title: title
+          acked_seq: 7
+          saved_seq: 2
+          last_event_at: 2000-01-23T04:56:07.000+00:00
+          delivered_count: 5
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          watch: true
+          note_count: 1
+          last_seq: 5
+          status: status
+        - check_count: 6
+          checking: true
+          metadata:
+            key: ""
+          event_count: 0
+          retain: retain
+          session_id: session_id
+          created_at: 2000-01-23T04:56:07.000+00:00
+          source: source
+          document_id: document_id
+          title: title
+          acked_seq: 7
+          saved_seq: 2
+          last_event_at: 2000-01-23T04:56:07.000+00:00
+          delivered_count: 5
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          watch: true
+          note_count: 1
+          last_seq: 5
+          status: status
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/SessionSummary'
+          type: array
+        total:
+          title: Total
+          type: integer
+        limit:
+          title: Limit
+          type: integer
+        offset:
+          title: Offset
+          type: integer
+      required:
+      - items
+      - limit
+      - offset
+      - total
+      title: SessionListResponse
+    SessionNote:
+      example:
+        created_at: 2000-01-23T04:56:07.000+00:00
+        text: text
+        trigger: trigger
+        source:
+          metadata:
+            key: ""
+          quote: ""
+          mentioned_at: 2000-01-23T04:56:07.000+00:00
+          document_id: document_id
+        memory_ids:
+        - memory_ids
+        - memory_ids
+        seq: 5
+      properties:
+        seq:
+          title: Seq
+          type: integer
+        text:
+          title: Text
+          type: string
+        trigger:
+          title: Trigger
+          type: string
+        memory_ids:
+          items:
+            type: string
+          type: array
+        source:
+          $ref: '#/components/schemas/SessionNoteSource'
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+      required:
+      - created_at
+      - seq
+      - text
+      - trigger
+      title: SessionNote
+    SessionNoteSource:
+      example:
+        metadata:
+          key: ""
+        quote: ""
+        mentioned_at: 2000-01-23T04:56:07.000+00:00
+        document_id: document_id
+      properties:
+        document_id:
+          title: Document Id
+          type: string
+        quote:
+          default: ""
+          description: "The source's own sentence closest to the note, verbatim."
+          title: Quote
+          type: string
+        mentioned_at:
+          format: date-time
+          nullable: true
+          type: string
+        metadata:
+          additionalProperties: {}
+          title: Metadata
+      required:
+      - document_id
+      title: SessionNoteSource
+    SessionOptions:
+      description: |-
+        How the session is set up. Applied when an append creates the session; later appends that
+        carry options update the fields they set.
+      example:
+        metadata:
+          key: metadata
+        watch: true
+        retain: turns
+        context: context
+        observation_scopes: per_tag
+        source: source
+        title: title
+        document_id: document_id
+        strategy: strategy
+        tags:
+        - tags
+        - tags
+      properties:
+        title:
+          maxLength: 1000
+          nullable: true
+          type: string
+        source:
+          maxLength: 256
+          nullable: true
+          type: string
+        document_id:
+          maxLength: 512
+          nullable: true
+          type: string
+        watch:
+          nullable: true
+          type: boolean
+        retain:
+          enum:
+          - turns
+          - close
+          - "off"
+          nullable: true
+          type: string
+        tags:
+          items:
+            type: string
+          nullable: true
+          type: array
+        context:
+          maxLength: 2000
+          nullable: true
+          type: string
+        strategy:
+          maxLength: 256
+          nullable: true
+          type: string
+        observation_scopes:
+          $ref: '#/components/schemas/Observation_Scopes_1'
+        metadata:
+          additionalProperties:
+            type: string
+          nullable: true
+      title: SessionOptions
+    SessionSummary:
+      example:
+        check_count: 6
+        checking: true
+        metadata:
+          key: ""
+        event_count: 0
+        retain: retain
+        session_id: session_id
+        created_at: 2000-01-23T04:56:07.000+00:00
+        source: source
+        document_id: document_id
+        title: title
+        acked_seq: 7
+        saved_seq: 2
+        last_event_at: 2000-01-23T04:56:07.000+00:00
+        delivered_count: 5
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        watch: true
+        note_count: 1
+        last_seq: 5
+        status: status
+      properties:
+        session_id:
+          title: Session Id
+          type: string
+        document_id:
+          title: Document Id
+          type: string
+        title:
+          nullable: true
+          type: string
+        source:
+          nullable: true
+          type: string
+        status:
+          title: Status
+          type: string
+        watch:
+          title: Watch
+          type: boolean
+        retain:
+          title: Retain
+          type: string
+        event_count:
+          title: Event Count
+          type: integer
+        check_count:
+          title: Check Count
+          type: integer
+        note_count:
+          title: Note Count
+          type: integer
+        delivered_count:
+          description: Notes the client acknowledged delivering to the agent.
+          title: Delivered Count
+          type: integer
+        last_seq:
+          title: Last Seq
+          type: integer
+        saved_seq:
+          title: Saved Seq
+          type: integer
+        acked_seq:
+          title: Acked Seq
+          type: integer
+        checking:
+          title: Checking
+          type: boolean
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        updated_at:
+          format: date-time
+          title: Updated At
+          type: string
+        last_event_at:
+          format: date-time
+          nullable: true
+          type: string
+        metadata:
+          additionalProperties: {}
+          title: Metadata
+      required:
+      - acked_seq
+      - check_count
+      - checking
+      - created_at
+      - delivered_count
+      - document_id
+      - event_count
+      - last_seq
+      - note_count
+      - retain
+      - saved_seq
+      - session_id
+      - status
+      - updated_at
+      - watch
+      title: SessionSummary
     SetBankAliasPrimaryRequest:
       description: Request model for showing (or no longer showing) an alias in place
         of the bank id.
@@ -13902,6 +14856,23 @@ components:
       - $ref: '#/components/schemas/TagGroupAnd-Input'
       - $ref: '#/components/schemas/TagGroupOr-Input'
       - $ref: '#/components/schemas/TagGroupNot-Input'
+    Observation_Scopes_1:
+      anyOf:
+      - enum:
+        - per_tag
+        - combined
+        - all_combinations
+        - shared
+        type: string
+      - items:
+          items:
+            type: string
+          type: array
+        type: array
+      description: "How observations built from the saved conversation are scoped,\
+        \ as on retain. The bank's default when unset."
+      nullable: true
+      title: Observation Scopes
     Not:
       anyOf:
       - $ref: '#/components/schemas/TagGroupLeaf'
