@@ -3369,6 +3369,12 @@ class MemoryEngine(MemoryEngineInterface):
         from ..tracing import register_span_recorder
 
         register_span_recorder(self._llm_recorder)
+        # One structured log line per model call, for spend accounting (off by default).
+        from .model_usage_log import model_usage_log_recorder
+
+        self._model_usage_log = model_usage_log_recorder(config.model_usage_log_enabled)
+        if self._model_usage_log is not None:
+            register_span_recorder(self._model_usage_log)
 
         # Background maintenance loop (retention sweeps + consolidation reconcile),
         # created in initialize() once the pool/backend is ready.
@@ -6659,6 +6665,8 @@ class MemoryEngine(MemoryEngineInterface):
         from ..tracing import unregister_span_recorder
 
         unregister_span_recorder(self._llm_recorder)
+        if self._model_usage_log is not None:
+            unregister_span_recorder(self._model_usage_log)
 
         # Shutdown task backend
         await self._task_backend.shutdown()

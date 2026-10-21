@@ -2750,6 +2750,7 @@ Rows are buffered in memory and written in batches (at most every 0.5s, or once 
 | `HINDSIGHT_API_LLM_TRACE_EXCLUDE_SCOPES` | Comma-separated call scopes never to trace, applied after the allowlist; `*` prefix patterns as above (e.g. `embedding_*,rerank` keeps only LLM and decision-model calls). | `""` |
 | `HINDSIGHT_API_LLM_TRACE_RETENTION_DAYS` | Number of days to retain trace rows. `-1` = keep forever. | `1` |
 | `HINDSIGHT_API_LLM_TRACE_MAX_CHARS` | Truncate stored input/output beyond this many characters (keeps the row, stores a truncated preview). | `50000` |
+| `HINDSIGHT_API_MODEL_USAGE_LOG_ENABLED` | Log one `model_usage` line per model call (LLM, embedding, rerank, decision) on the `hindsight_api.model_usage` logger: bank, operation, trace id, scope, call type, provider, model, success / error type, input / cached / output / thoughts tokens, duration. With `HINDSIGHT_API_LOG_FORMAT=json` these are top-level keys of the line, so a log pipeline can route the lines to storage for spend accounting. Independent of `llm_requests` tracing. | `false` |
 
 ### Background Maintenance {#background-maintenance}
 

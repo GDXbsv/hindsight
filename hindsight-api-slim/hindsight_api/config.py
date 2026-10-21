@@ -1173,6 +1173,7 @@ ENV_LLM_TRACE_SCOPES = "HINDSIGHT_API_LLM_TRACE_SCOPES"
 ENV_LLM_TRACE_EXCLUDE_SCOPES = "HINDSIGHT_API_LLM_TRACE_EXCLUDE_SCOPES"
 ENV_LLM_TRACE_RETENTION_DAYS = "HINDSIGHT_API_LLM_TRACE_RETENTION_DAYS"
 ENV_LLM_TRACE_MAX_CHARS = "HINDSIGHT_API_LLM_TRACE_MAX_CHARS"
+ENV_MODEL_USAGE_LOG_ENABLED = "HINDSIGHT_API_MODEL_USAGE_LOG_ENABLED"
 
 # Background maintenance settings
 ENV_CONSOLIDATION_RECONCILE_INTERVAL_SECONDS = "HINDSIGHT_API_CONSOLIDATION_RECONCILE_INTERVAL_SECONDS"
@@ -2178,6 +2179,7 @@ DEFAULT_LLM_TRACE_SCOPES = ""  # Empty = trace all call scopes
 DEFAULT_LLM_TRACE_EXCLUDE_SCOPES = ""  # Empty = exclude nothing
 DEFAULT_LLM_TRACE_RETENTION_DAYS = 1  # Retain trace rows for 1 day by default
 DEFAULT_LLM_TRACE_MAX_CHARS = 50000  # Truncate stored input/output beyond this many chars
+DEFAULT_MODEL_USAGE_LOG_ENABLED = False  # One structured log line per model call
 
 # Background maintenance defaults
 # Periodic reconcile that re-schedules consolidation for banks with eligible-but-unscheduled
@@ -2323,7 +2325,27 @@ class JsonFormatter(logging.Formatter):
         if self._allowed_fields is not None:
             log_entry = {k: v for k, v in log_entry.items() if k in self._allowed_fields}
 
+        # A caller's structured payload (``extra={"json_fields": {...}}``, the name Google's
+        # logging library uses), as top-level keys so a log pipeline can query them as
+        # columns. After the allowlist: it is the line's content, which a caller asked for
+        # explicitly, and the standard fields it was written next to cannot be overwritten.
+        json_fields = getattr(record, "json_fields", None)
+        if isinstance(json_fields, dict):
+            log_entry = {**json_fields, **log_entry}
+
         return json.dumps(log_entry)
+
+
+class TextFormatter(logging.Formatter):
+    """The plain-text format, with a caller's ``json_fields`` appended as JSON so they are not lost."""
+
+    def __init__(self) -> None:
+        super().__init__("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+
+    def format(self, record: logging.LogRecord) -> str:
+        line = super().format(record)
+        json_fields = getattr(record, "json_fields", None)
+        return f"{line} {json.dumps(json_fields)}" if isinstance(json_fields, dict) else line
 
 
 def _parse_str_list(value: str) -> list[str]:
@@ -3877,6 +3899,7 @@ class HindsightConfig:
     llm_trace_exclude_scopes: list[str]  # Call scopes never traced; wins over the allowlist
     llm_trace_retention_days: int  # -1 = keep forever, >0 = delete after N days
     llm_trace_max_chars: int  # Truncate stored input/output beyond this many chars
+    model_usage_log_enabled: bool  # Log one model_usage line per model call
 
     # Background maintenance configuration (static - server-level only)
     # Interval for the periodic sweep that re-schedules consolidation for banks with
@@ -5686,6 +5709,8 @@ class HindsightConfig:
                 os.getenv(ENV_LLM_TRACE_RETENTION_DAYS, str(DEFAULT_LLM_TRACE_RETENTION_DAYS))
             ),
             llm_trace_max_chars=int(os.getenv(ENV_LLM_TRACE_MAX_CHARS, str(DEFAULT_LLM_TRACE_MAX_CHARS))),
+            model_usage_log_enabled=os.getenv(ENV_MODEL_USAGE_LOG_ENABLED, str(DEFAULT_MODEL_USAGE_LOG_ENABLED)).lower()
+            == "true",
             # Background maintenance configuration (static, server-level only)
             consolidation_reconcile_interval_seconds=int(
                 os.getenv(
@@ -5796,7 +5821,7 @@ class HindsightConfig:
             allowed = frozenset(self.log_json_fields) if self.log_json_fields else None
             handler.setFormatter(JsonFormatter(allowed_fields=allowed))
         else:
-            handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s"))
+            handler.setFormatter(TextFormatter())
 
         root_logger.addHandler(handler)
 
