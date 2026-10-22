@@ -21,7 +21,7 @@ import { createHash, randomUUID } from "crypto";
 import { dirname, join } from "path";
 import * as log from "./logger.js";
 import { configureLogger, setApiLogger, stopLogger } from "./logger.js";
-import { mkdirSync } from "fs";
+import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { createRequire } from "module";
 import { homedir } from "os";
 import {
@@ -2005,6 +2005,92 @@ async function refreshQueueOperationIdCapability(
   );
 }
 
+// hex-gen-docs v3: durable per-sessionKey generation counter. The on-disk
+// counter is only a cache — Hindsight itself is the source of truth: at every
+// session boundary (and on retain conflicts) the highest `:gNNN` document that
+// already exists server-side is adopted back, so a lost (`rm`) or stale state
+// file self-heals instead of collapsing to :g000 and appending into a previous
+// dialog's document (#4622).
+
+function hexGenStatePath(documentBase: string): string {
+  const dir =
+    process.env.HINDSIGHT_OPENCLAW_STATE_DIR ||
+    `${process.env.HOME || homedir()}/.openclaw/hindsight-doc-generations`;
+  mkdirSync(dir, { recursive: true });
+  const digest = createHash("sha1").update(documentBase).digest("hex");
+  return `${dir}/${digest.slice(0, 20)}.json`;
+}
+
+function readSessionGeneration(documentBase: string): number {
+  try {
+    const parsed = JSON.parse(readFileSync(hexGenStatePath(documentBase), "utf8")) as {
+      generation?: number;
+    };
+    return Number.isInteger(parsed?.generation) && (parsed.generation ?? 0) > 0 ? (parsed.generation as number) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Scan the bank for the highest existing `<documentBase>:gNNN` document id. */
+async function ensureSessionGeneration(documentBase: string, bankId: string): Promise<number> {
+  let cached = 0;
+  try {
+    const parsed = JSON.parse(readFileSync(hexGenStatePath(documentBase), "utf8")) as {
+      generation?: number;
+    };
+    if (Number.isInteger(parsed?.generation) && (parsed.generation ?? 0) > 0) cached = parsed.generation as number;
+  } catch {
+    /* cache lost */
+  }
+  try {
+    const c = getClient();
+    if (!c || !bankId) return cached;
+    let max = 0;
+    let offset = 0;
+    for (;;) {
+      const page = await c.listDocuments(bankId, { limit: 500, offset });
+      const raw = page as { items?: unknown; documents?: unknown; total?: number };
+      const items = Array.isArray(page) ? page : raw?.items ?? raw?.documents ?? [];
+      if (!Array.isArray(items) || items.length === 0) break;
+      for (const item of items) {
+        const idStr = String(
+          typeof item === "string" ? item : (item as { document_id?: string; id?: string })?.document_id ?? (item as { id?: string })?.id ?? ""
+        );
+        if (!idStr.startsWith(`${documentBase}:g`)) continue;
+        const digits = idStr.slice(documentBase.length + 2);
+        if (/^\d+$/.test(digits)) max = Math.max(max, parseInt(digits, 10));
+      }
+      offset += items.length;
+      const total = raw?.total;
+      if (total != null && offset >= total) break;
+    }
+    if (max !== cached) {
+      writeFileSync(hexGenStatePath(documentBase), JSON.stringify({ generation: max, updated_at: new Date().toISOString() }));
+      debug(`[Hindsight Hook] v3: generation for ${documentBase} healed ${cached} -> ${max}`);
+    }
+    return max;
+  } catch (error) {
+    log.warn(`v3: ensureSessionGeneration degraded to cache for ${documentBase}: ${String(error)}`);
+    return cached;
+  }
+}
+
+function bumpSessionGeneration(documentBase: string, knownCurrent?: number): number {
+  try {
+    const path = hexGenStatePath(documentBase);
+    let current = readSessionGeneration(documentBase);
+    if (Number.isInteger(knownCurrent) && (knownCurrent ?? 0) > current) current = knownCurrent as number;
+    const next = current + 1;
+    writeFileSync(path, JSON.stringify({ generation: next, updated_at: new Date().toISOString() }));
+    debug(`[Hindsight Hook] v3: generation for ${documentBase} -> ${next}`);
+    return next;
+  } catch (error) {
+    log.warn(`v3: bumpSessionGeneration failed for ${documentBase}: ${String(error)}`);
+    return 0;
+  }
+}
+
 /**
  * Probe `/version` and update the module-level append and async-operation-id
  * capability flags. Logs a one-time WARN block when the append API is
@@ -3257,6 +3343,12 @@ ${memoriesFormatted}
             : asyncRetainOperationIdCapability;
         if (!retainLifecycleIsCurrent()) return;
         const retainNow = Date.now();
+        // hex-gen-docs v3: epoch = durable per-sessionKey generation counter,
+        // self-healed against the server's highest `:gNNN` document so chunked
+        // retains and the session_end flush land in the same generation-scoped
+        // document and a lost state file cannot collapse back to :g000 (#4622).
+        const generationBase = getSessionDocumentBase(effectiveCtxForRetain);
+        const resetEpoch = await ensureSessionGeneration(generationBase, bankId);
         const retainRequest = buildRetainRequest(
           transcript,
           messageCount,
@@ -3344,6 +3436,19 @@ ${memoriesFormatted}
     // un-retained tail of long conversations are not silently dropped. (#1726)
     api.on("session_end", async (event: any, ctx?: PluginHookAgentContext) => {
       await runRetain(event, ctx, { hookName: "session_end", force: true });
+      // hex-gen-docs v3: bump only after this close flush completed, so the
+      // next dialog starts a fresh :gNNN document instead of appending into
+      // the old one. Hindsight is the source of truth: the counter is healed
+      // against the server's highest :gNNN before bumping (#4622).
+      try {
+        const endIdentity = resolveSessionIdentity(
+          ctx ?? ({ sessionKey: event?.sessionKey } as PluginHookAgentContext)
+        );
+        const endBase = getSessionDocumentBase(endIdentity);
+        bumpSessionGeneration(endBase, await ensureSessionGeneration(endBase, deriveBankId(endIdentity, pluginConfig)));
+      } catch (error) {
+        log.warn(`v3: session_end generation bump failed: ${String(error)}`);
+      }
     });
     debug("[Hindsight] Hooks registered");
     log.info("agent hooks registered");
